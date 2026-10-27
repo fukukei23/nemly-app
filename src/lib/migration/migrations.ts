@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS sleep_stages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_start ON sleep_sessions(start_ms);
-CREATE INDEX IF NOT EXISTS idx_stages_session ON sleep_stages(session_id, ts_ms);
+-- UNIQUE: 重複防御を SQLite 側でも担保（InMemory と等価契約・再 import で stages 重複を防ぐ）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stages_session_ts ON sleep_stages(session_id, ts_ms);
 `.trim();
 
 export const v1: Migration = {

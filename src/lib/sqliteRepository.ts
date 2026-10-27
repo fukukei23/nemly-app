@@ -73,8 +73,9 @@ export class SQLiteRepository implements Repository {
       );
       const insertedId = result.lastInsertRowId as number;
       for (const stage of stages) {
+        // INSERT OR IGNORE: UNIQUE(session_id, ts_ms) 違反を冪等に（InMemory の重複排除と等価契約）
         await tx.runAsync(
-          "INSERT INTO sleep_stages (session_id, ts_ms, phase) VALUES (?, ?, ?)",
+          "INSERT OR IGNORE INTO sleep_stages (session_id, ts_ms, phase) VALUES (?, ?, ?)",
           [insertedId, stage.tsMs, stage.phase]
         );
       }
@@ -142,6 +143,11 @@ export function initializeSqliteRepositoryAsync(
     const db = await SQLite.openDatabaseAsync(dbName);
     _setRepositoryForTest(new SQLiteRepository(db, adapter));
   })();
+  // 失敗も singleton にキャッシュすると再起動まで復旧不能（MLR r1 GLM 指摘）:
+  // rejected promise を握らずリセットして次回呼出で再初期化できるようにする
+  sqliteInitPromise.catch(() => {
+    sqliteInitPromise = null;
+  });
   return sqliteInitPromise;
 }
 

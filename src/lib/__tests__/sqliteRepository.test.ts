@@ -78,9 +78,17 @@ function makeFakeDb(userVersion = 0): any {
         });
         return { lastInsertRowId: id };
       }
-      if (sql.includes("INSERT INTO sleep_stages")) {
+      if (sql.includes("INSERT OR IGNORE INTO sleep_stages")) {
         if (!tables["sleep_stages"]) tables["sleep_stages"] = [];
         const [sessionId, tsMs, phase] = params;
+        // UNIQUE(session_id, ts_ms) の模擬: 重複 ts は INSERT を無視（OR IGNORE 契約）
+        if (
+          tables["sleep_stages"].some(
+            (r: any) => r.session_id === sessionId && r.ts_ms === tsMs
+          )
+        ) {
+          return {};
+        }
         tables["sleep_stages"].push({ session_id: sessionId, ts_ms: tsMs, phase });
         return {};
       }
@@ -167,6 +175,18 @@ describe("SQLiteRepository (migration framework 経由)", () => {
     expect(await repo.getSessionStages(id)).toEqual([]);
   });
 
+  test("同一 ts の stages 重複は UNIQUE INDEX 契約で INSERT OR IGNORE される（MLR r1 GLM 指摘）", async () => {
+    const db = makeFakeDb(0);
+    const repo = new SQLiteRepository(db, createFakeAdapter());
+    const id = await repo.insertSession(makeSession(), [
+      { tsMs: 1792867680000, phase: "DEEP" },
+      { tsMs: 1792867680000, phase: "LIGHT" },
+      { tsMs: 1792867690000, phase: "REM" },
+    ]);
+    const stages = await repo.getSessionStages(id);
+    expect(stages).toHaveLength(2);
+  });
+
   test("insertSession は単一 tx 内で session+stages を保存する", async () => {
     const db = makeFakeDb(0);
     const repo = new SQLiteRepository(db, createFakeAdapter());
@@ -181,7 +201,7 @@ describe("SQLiteRepository (migration framework 経由)", () => {
     const repo = new SQLiteRepository(db, createFakeAdapter());
     const origRunAsync = db.runAsync.bind(db);
     db.runAsync = async (sql: string, params: any[]) => {
-      if (sql.includes("INSERT INTO sleep_stages")) {
+      if (sql.includes("INSERT OR IGNORE INTO sleep_stages")) {
         throw new Error("stages INSERT 失敗");
       }
       return origRunAsync(sql, params);

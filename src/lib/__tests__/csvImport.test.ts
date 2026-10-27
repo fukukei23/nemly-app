@@ -85,8 +85,8 @@ describe("analyzeSleep", () => {
   test("全無活動系列でも大半は判定され・BROKEN は先頭の評価開始前のみ", () => {
     const result = analyzeSleep(quietSamples(60));
     const broken = result.stages.filter((s) => s.phase === "BROKEN");
-    // 評価開始条件（callCount>=30 等）で先頭に UNKNOWN=BROKEN が出うるが・
-    // 全体の半分を超えないこと（原典準拠の保守的挙動）
+    // 評価開始条件（高活動頻度検知の窓=30サンプル等・awakeDetectors.ts の windowSize 既定）で
+    // 先頭に UNKNOWN=BROKEN が出うるが・全体の半分を超えないこと（原典準拠の保守的挙動）
     expect(broken.length).toBeLessThan(30);
     expect(result.stages.length).toBe(60);
   });

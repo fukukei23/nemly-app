@@ -25,8 +25,11 @@ import {
 } from "./sleepAlgorithm/index";
 import type { SleepStageRow, StagePhase } from "./repository";
 
-/** 原典現行版（getMinDeepSleepLength=15分・getDeepSleepThreshold=3.1 固定） */
+/** 原典現行版（v20261006 相当・getMinDeepSleepLength=15分・getDeepSleepThreshold=3.1 固定・正典: hypnogramGeneration.ts の version 対応表） */
 const CURRENT_VERSION = 10008;
+
+/** 実機エクスポートのサンプリング粒度（FRAMERATE_MS と同一・10秒） */
+const STEP_MS = 10_000;
 
 export interface ParsedSample {
   ts: number;
@@ -47,7 +50,9 @@ export interface AnalyzeResult {
 
 export function parseActivityTxt(content: string): ParsedSample[] {
   const out: ParsedSample[] = [];
-  const lines = content.trim().split("\n");
+  // CRLF・BOM 耐性（実機エクスポートの改行コード差異を吸収・MLR r1 MiniMax 指摘）
+  const normalized = content.replace(/^﻿/, "").replace(/\r\n/g, "\n");
+  const lines = normalized.trim().split("\n");
   for (const line of lines) {
     const cols = line.split(",");
     const ts = Number(cols[0]);
@@ -71,7 +76,9 @@ function toHypnogramIntervals(
       out.push({
         label: labelOf(phases[start]!),
         start: samples[start]!.ts,
-        end: samples[i - 1]!.ts,
+        // 区間 end は実区間の終了（最終サンプル ts + 1サンプル幅・MLR r1 GLM 指摘）:
+        // 10秒窓の開始時刻のままだと REM 判定の「>=15分」等が1サンプル分短く評価される
+        end: samples[i - 1]!.ts + STEP_MS,
       });
       start = i;
     }
