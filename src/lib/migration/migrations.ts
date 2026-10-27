@@ -69,4 +69,29 @@ export const v1: Migration = {
   up: V1_DDL,
 };
 
-export const ALL_MIGRATIONS: Migration[] = [v1];
+/**
+ * v2: センサー計測（Phase 2）
+ * - amplitude_samples: センサーの10秒振幅系列（session_id+ts_ms で UNIQUE・再取り込みは INSERT OR IGNORE 正常系）
+ * - sleep_sessions へのメタ列追加: センサーリンクッションの有効率・欠損区間数・終了理由（spec §4.2・nullable）
+ */
+export const V2_DDL = `
+CREATE TABLE IF NOT EXISTS amplitude_samples (
+  session_id TEXT NOT NULL,
+  ts_ms INTEGER NOT NULL,
+  amplitude REAL NOT NULL,
+  quality INTEGER NOT NULL,
+  PRIMARY KEY (session_id, ts_ms)
+);
+
+ALTER TABLE sleep_sessions ADD COLUMN valid_ratio REAL;
+ALTER TABLE sleep_sessions ADD COLUMN gap_count INTEGER;
+ALTER TABLE sleep_sessions ADD COLUMN end_reason TEXT;
+`.trim();
+
+export const v2: Migration = {
+  version: 2,
+  name: "v2: amplitude_samples + sensor session meta columns",
+  up: V2_DDL,
+};
+
+export const ALL_MIGRATIONS: Migration[] = [v1, v2];

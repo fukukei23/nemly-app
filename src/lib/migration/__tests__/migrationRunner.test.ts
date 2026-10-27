@@ -9,7 +9,7 @@
 
 import { createFakeAdapter, type TestingSQLiteAdapter } from "../sqliteAdapter";
 import { migrationRunner } from "../migrationRunner";
-import { v1 } from "../migrations";
+import { v1, v2, ALL_MIGRATIONS } from "../migrations";
 import type { Migration } from "../migrations";
 import { createHash } from "crypto";
 
@@ -366,5 +366,39 @@ describe("migrationRunner (Day 4)", () => {
       expect(sqls).toContain("ROLLBACK;");
       expect(sqls).not.toContain("COMMIT;");
     });
+  });
+});
+
+describe("v2 migration", () => {
+  test("v1+v2 を適用し user_version=2 になる", async () => {
+    const db = makeFakeDb(0);
+    await migrationRunner.run(db, ALL_MIGRATIONS, adapter);
+    expect(await adapter.getUserVersion(db)).toBe(2);
+  });
+
+  test("v2 適用で amplitude_samples と sleep_sessions のメタ列 DDL が実行される", async () => {
+    const db = makeFakeDb(0);
+    await migrationRunner.run(db, ALL_MIGRATIONS, adapter);
+    const sqls = adapter.getExecutedSqls(db);
+    expect(sqls.some((s) => s.includes("CREATE TABLE IF NOT EXISTS amplitude_samples"))).toBe(true);
+    expect(sqls.some((s) => s.includes("ALTER TABLE sleep_sessions ADD COLUMN valid_ratio"))).toBe(true);
+    expect(sqls.some((s) => s.includes("ALTER TABLE sleep_sessions ADD COLUMN gap_count"))).toBe(true);
+    expect(sqls.some((s) => s.includes("ALTER TABLE sleep_sessions ADD COLUMN end_reason"))).toBe(true);
+  });
+
+  test("v2 の checksum は v2.up から計算される", async () => {
+    const db = makeFakeDb(0);
+    await migrationRunner.run(db, ALL_MIGRATIONS, adapter);
+    const rows = await adapter.getMigrations(db);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ version: 2, name: v2.name });
+    expect(rows[1].checksum).toBe(await adapter.checksumOfAsync(v2.up));
+  });
+
+  test("v1 の checksum は v2 追加で不変（既存DB互換・差分レビュー確認）", async () => {
+    const db = makeFakeDb(0);
+    await migrationRunner.run(db, ALL_MIGRATIONS, adapter);
+    const rows = await adapter.getMigrations(db);
+    expect(rows[0].checksum).toBe(await adapter.checksumOfAsync(v1.up));
   });
 });
