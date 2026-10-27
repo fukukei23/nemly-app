@@ -48,6 +48,7 @@ export interface AnalyzeResult {
   stages: SleepStageRow[];
 }
 
+/** 入力 ts の契約: epoch ミリ秒（実機エクスポート実測・real_data.ts と同一・秒入力は1000倍ずれになるため未対応） */
 export function parseActivityTxt(content: string): ParsedSample[] {
   const out: ParsedSample[] = [];
   // CRLF・BOM 耐性（実機エクスポートの改行コード差異を吸収・MLR r1 MiniMax 指摘）
@@ -154,7 +155,8 @@ export function analyzeSleep(samples: ParsedSample[]): AnalyzeResult {
 
   return {
     startMs,
-    endMs,
+    // 最終サンプルの窓終端（実終了時刻・MLR r2 GLM 指摘: 窓開始のままだと DURATION が10秒短くなる）
+    endMs: endMs + STEP_MS,
     sampleCount: total,
     deepRatio,
     lightRatio,

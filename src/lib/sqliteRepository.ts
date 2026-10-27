@@ -73,7 +73,9 @@ export class SQLiteRepository implements Repository {
       );
       const insertedId = result.lastInsertRowId as number;
       for (const stage of stages) {
-        // INSERT OR IGNORE: UNIQUE(session_id, ts_ms) 違反を冪等に（InMemory の重複排除と等価契約）
+        // INSERT OR IGNORE: UNIQUE(session_id, ts_ms) 違反を冪等に無視。
+        // 契約=first-wins（先着行を保持・後着を捨てる・InMemory の seen.has と同一挙動）。
+        // 同一 session 内では1判定パイプラインで1tsに1phase のため矛盾行は発生しない。
         await tx.runAsync(
           "INSERT OR IGNORE INTO sleep_stages (session_id, ts_ms, phase) VALUES (?, ?, ?)",
           [insertedId, stage.tsMs, stage.phase]

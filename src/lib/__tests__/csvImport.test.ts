@@ -48,6 +48,27 @@ describe("parseActivityTxt", () => {
 });
 
 describe("analyzeSleep", () => {
+  test("深眠が短すぎる構成では REM は検出されない（条件未達の正常系）", () => {
+    const result = analyzeSleep(quietSamples(30)); // 5分のみ=DEEP>=10分未満
+    const rem = result.stages.filter((s) => s.phase === "REM");
+    expect(rem).toHaveLength(0);
+  });
+
+  test("深眠長→浅眠長の構成で REM 区間が検出され stages に現れる（原典 §2.5・DEEP>=10分+LIGHT>=15分+開始50分以降5分以上残存）", () => {
+    // 静かな系列25分（無活動継続→DEEP 判定）+ 交互振幅50分（someActivity 継続→LIGHT 判定）
+    // 全体75分: REM は「開始+50分以降に5分以上残存」条件を満たす（rem_probe6 実測 REM=35サンプル）
+    const quiet = quietSamples(150); // 25分・DEEP 区間候補
+    const last = quiet[quiet.length - 1]!;
+    const active = Array.from({ length: 300 }, (_, i) => ({
+      ts: last.ts + (i + 1) * STEP_MS,
+      amp: i % 2 === 0 ? 0.6 : 0.01, // 交互振幅: 覚醒化せず LIGHT 判定を継続させる合成
+    }));
+    const result = analyzeSleep([...quiet, ...active]);
+    const rem = result.stages.filter((s) => s.phase === "REM");
+    expect(rem.length).toBeGreaterThan(0);
+    expect(result.remRatio).toBeGreaterThan(0);
+  });
+
   test("正常系: stages が昇順で・phase は定義値のみ", () => {
     const samples = quietSamples(60);
     const result = analyzeSleep(samples);
@@ -60,10 +81,10 @@ describe("analyzeSleep", () => {
     }
   });
 
-  test("startMs/endMs が先頭/末尾サンプル ts と一致", () => {
+  test("startMs=先頭サンプル ts・endMs=末尾サンプルの窓終端（+10秒・MLR r2 GLM 指摘）", () => {
     const result = analyzeSleep(quietSamples(30));
     expect(result.startMs).toBe(1_792_867_680_000);
-    expect(result.endMs).toBe(1_792_867_680_000 + 29 * STEP_MS);
+    expect(result.endMs).toBe(1_792_867_680_000 + 29 * STEP_MS + STEP_MS);
   });
 
   test("比率の合計が 1（BROKEN 含む・浮動小数誤差許容）", () => {

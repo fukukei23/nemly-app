@@ -187,6 +187,21 @@ describe("SQLiteRepository (migration framework 経由)", () => {
     expect(stages).toHaveLength(2);
   });
 
+  test("deleteSession 内で stages DELETE が失敗すると例外が伝播する（tx 契約・MLR r2 MiniMax 指摘）", async () => {
+    const db = makeFakeDb(0);
+    const repo = new SQLiteRepository(db, createFakeAdapter());
+    const id = await repo.insertSession(makeSession(), makeStages());
+    const origRunAsync = db.runAsync.bind(db);
+    db.runAsync = async (sql: string, params: any[]) => {
+      if (sql.includes("DELETE FROM sleep_stages")) {
+        throw new Error("stages DELETE 失敗");
+      }
+      return origRunAsync(sql, params);
+    };
+    // tx 内 throw で例外伝播（fake は rollback をシミュレートしない・実機 rollback 実測は起票済みタスク）
+    await expect(repo.deleteSession(id)).rejects.toThrow("stages DELETE 失敗");
+  });
+
   test("insertSession は単一 tx 内で session+stages を保存する", async () => {
     const db = makeFakeDb(0);
     const repo = new SQLiteRepository(db, createFakeAdapter());
@@ -230,6 +245,20 @@ describe("並行実行防御 (複製元 MLR r3 GLM-1 を踏襲)", () => {
     ]);
     await initializeSqliteRepositoryAsync("nemly.db", fake);
     expect(openDatabaseAsync).toHaveBeenCalledTimes(1);
+  });
+
+  test("初期化失敗時も singleton が解除され再試行される（MLR r1 glm#2）", async () => {
+    const { openDatabaseAsync } = require("expo-sqlite");
+    (openDatabaseAsync as jest.Mock).mockReset();
+    (openDatabaseAsync as jest.Mock).mockRejectedValueOnce(new Error("一時的失敗"));
+    (openDatabaseAsync as jest.Mock).mockImplementation(async () => makeFakeDb(0));
+    const fake = createFakeAdapter();
+    await expect(initializeSqliteRepositoryAsync("nemly.db", fake)).rejects.toThrow(
+      "一時的失敗"
+    );
+    // 失敗がキャッシュされていないことの証明: 2回目の呼出で openDatabaseAsync が再実行される
+    await initializeSqliteRepositoryAsync("nemly.db", fake);
+    expect(openDatabaseAsync).toHaveBeenCalledTimes(2);
   });
 
   test("初期化後、repository.ts の activeRepository が SQLiteRepository に差し替わる", async () => {
