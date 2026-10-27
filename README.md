@@ -1,56 +1,49 @@
-# Welcome to your Expo app 👋
+# Nemly（ネムリー）
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+睡眠記録アプリの Phase 1 土台。Sleep as Android をクリーンルーム解析して作った [sleep-algorithm](https://github.com/fukukei23/sleep-algorithm)（pure-logic ライブラリ）を Expo/React Native アプリに組み込み、アクティグラフ CSV から睡眠スコアと3値ヒプノグラムを生成・保存する。
 
-## Get started
+## 現在のスコープ（Phase 1）
 
-1. Install dependencies
+- **CSV インポート**: Sleep as Android のアクティグラフ（Activity_*.txt・5列形式・10秒粒度・epoch ms）を読み込み
+- **睡眠スコア**: DURATION / DEEP_SLEEP / EFFICIENCY の3測定合否比率（§4 仕様準拠・欠損測定は分母から除外）
+- **3値ヒプノグラム**: DEEP / LIGHT / REM / AWAKE / BROKEN の統合ラベル時系列表示
+- **ローカル SQLite**: 検証済み migration framework（checksum + fail-closed + 1 migration = 1 transaction）
 
-   ```bash
-   npm install
-   ```
+センサーでの直接計測は Phase 2（未実装）。
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## 使い方
 
 ```bash
-npm run reset-project
+npm install
+npm test            # 58 tests
+npm run typecheck
+npm run lint
+npm start           # expo start
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+アプリ内: 「インポート」→ Activity_*.txt を選択 → スコア/ヒプノグラム生成 → 一覧に保存。
 
-### Other setup steps
+## アーキテクチャ
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```
+Activity_*.txt (5列・10秒粒度)
+  → src/lib/csvImport.ts        パース + 判定パイプライン（sleepAlgorithm）
+      ActivityClassifier → SleepPhaseDetector → detectAwakeIntervals → detectREM → SleepScoreCalculator
+      → 統合ラベル時系列 (AWAKE > REM > DEEP > LIGHT > BROKEN)
+  → src/lib/repository.ts       Interface + InMemory（テスト）
+  → src/lib/sqliteRepository.ts SQLite 実装（単一 tx 契約・並行実行防御）
+      → src/lib/migration/      検証済み framework（MicroWin から複製・checksum + fail-closed）
+  → src/app/                    Expo Router（一覧 / 詳細 / インポート）
+```
 
-## Learn more
+sleep-algorithm は別リポジトリ（実機比較検証で列粒度一致率 93.6% 実測）の pure TS コードを複製して使用。
 
-To learn more about developing your project with Expo, look at the following resources:
+## 検証
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+- テスト 58（migration 24 + repository 11 + csvImport 14 + sqliteRepository 9）・tsc 0 エラー・eslint 0 errors
+- 決定論プレフィルタ: gitleaks no leaks
+- MLR（4機複数LLMレビュー）r1/r2 計49指摘を消化（r2 は blind 再レビュー）
 
-## Join the community
+## ライセンス
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+MIT
