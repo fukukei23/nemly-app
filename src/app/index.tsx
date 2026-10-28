@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
 import { listSessions, type SessionRecord } from '@/lib/repository';
 import { initializeSqliteRepositoryAsync } from '@/lib/sqliteRepository';
+import { importSensorSession } from '@/lib/sensor/sensorImport';
+import {
+  createNativeSensorSource,
+  nativeGetStatus,
+  nativeStartRecording,
+  nativeStopRecording,
+} from '@/lib/sensor/nativeSource';
 
 function formatDay(startMs: number): string {
   const d = new Date(startMs);
@@ -21,27 +28,80 @@ function formatDuration(startMs: number, endMs: number): string {
   return `${h}時間${m}分`;
 }
 
+/** FGS の終了書込完了を待つ（finished: 接頭辞 or 15秒タイムアウト） */
+async function waitForServiceStop(): Promise<boolean> {
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    if (nativeGetStatus().startsWith('finished:')) return true;
+  }
+  return false;
+}
+
 export default function SessionListScreen() {
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const refreshSessions = async () => {
+    const rows = await listSessions();
+    setSessions(rows);
+    setLoaded(true);
+  };
 
   useEffect(() => {
     (async () => {
       await initializeSqliteRepositoryAsync();
-      const rows = await listSessions();
-      setSessions(rows);
-      setLoaded(true);
+      await refreshSessions();
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleToggleRecording = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (!recording) {
+        nativeStartRecording();
+        setRecording(true);
+      } else {
+        nativeStopRecording();
+        setRecording(false);
+        await waitForServiceStop();
+        const res = await importSensorSession(createNativeSensorSource());
+        await refreshSessions();
+        if (res.verdict === 'fail') {
+          Alert.alert('計測の判定: fail', res.reasons.join('\n'));
+        } else if (res.verdict === 'degraded_pass') {
+          Alert.alert('計測を取り込みました（条件付き許容）', res.reasons.join('\n'));
+        } else {
+          Alert.alert('計測を取り込みました', '一覧に表示されています');
+        }
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         {loaded && sessions.length === 0 && (
           <Text style={styles.emptyText}>
-            記録がありません。{'\n'}右上の「インポート」から睡眠データを取り込めます。
+            記録がありません。{'\n'}「計測を開始」でセンサー計測、{'\n'}「インポート」でCSVデータを取り込めます。
           </Text>
         )}
+        <Pressable
+          style={[styles.recordButton, recording && styles.recordButtonActive]}
+          onPress={handleToggleRecording}
+          disabled={busy}
+          testID="record-toggle"
+        >
+          <Text style={styles.recordButtonText}>
+            {busy ? '処理中…' : recording ? '計測を停止' : '計測を開始'}
+          </Text>
+          {recording && <Text style={styles.recordingHint}>画面を閉じても計測は続きます</Text>}
+        </Pressable>
         <FlatList
           data={sessions}
           keyExtractor={(item) => String(item.id)}
@@ -101,4 +161,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   importButtonText: { color: '#ffffff', fontWeight: '600', fontSize: 16 },
+  recordButton: {
+    backgroundColor: '#10b981',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  recordButtonActive: { backgroundColor: '#f43f5e' },
+  recordButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 16 },
+  recordingHint: { color: '#ffffff', fontSize: 12, marginTop: 4 },
 });

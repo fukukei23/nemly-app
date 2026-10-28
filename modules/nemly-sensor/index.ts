@@ -4,15 +4,13 @@
  */
 import { requireNativeModule } from 'expo-modules-core';
 
-type NemlySensorModuleType = {
+export interface NemlySensorModuleType {
   startRecording(): string;
   stopRecording(): string;
   pullSeries(sessionId: string): Promise<string>;
   confirmImported(sessionId: string): string;
   getStatus(): string;
   getLastSessionId(): string;
-};
-
-declare const requireNativeModule: (name: string) => NemlySensorModuleType;
+}
 
 export default requireNativeModule('NemlySensor') as NemlySensorModuleType;

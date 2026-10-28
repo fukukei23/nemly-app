@@ -105,6 +105,14 @@ export default function SessionDetailScreen() {
           {formatClock(session.startMs)} 〜 {formatClock(session.endMs)}（{h}時間{m}分）
         </Text>
 
+        {session.source === 'sensor' && (
+          <Text style={styles.sensorMetaText}>
+            計測: {session.endReason === 'user_stop' ? '手動停止' : (session.endReason ?? '—')}
+            {'\n'}有効率: {session.validRatio != null ? `${Math.round(session.validRatio * 100)}%` : '—'}
+            {'\n'}欠損区間: {session.gapCount ?? 0}件
+          </Text>
+        )}
+
         <Text style={styles.sectionTitle}>ヒプノグラム</Text>
         <HypnogramBar stages={stages} />
         <View style={styles.timeRow}>
@@ -130,6 +138,7 @@ const styles = StyleSheet.create({
   scoreText: { fontSize: 56, fontWeight: '700', color: '#4f46e5', marginTop: 8 },
   scoreLabel: { fontSize: 13, color: '#94a3b8', marginBottom: 12 },
   durationText: { fontSize: 15, color: '#334155', marginBottom: 24 },
+  sensorMetaText: { fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 20 },
   sectionTitle: { fontSize: 14, fontWeight: '600', color: '#0f172a', marginBottom: 8, marginTop: 8 },
   hypnogramRow: {
     flexDirection: 'row',
