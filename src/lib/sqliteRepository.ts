@@ -23,7 +23,7 @@ import { ALL_MIGRATIONS } from "./migration/migrations";
 import { migrationRunner } from "./migration/migrationRunner";
 import { createExpoSqliteAdapter, type SQLiteAdapter } from "./migration/sqliteAdapter";
 
-const SESSION_COLS = "id, start_ms, end_ms, sample_count, deep_ratio, light_ratio, rem_ratio, awake_ratio, score, source, created_at";
+const SESSION_COLS = "id, start_ms, end_ms, sample_count, deep_ratio, light_ratio, rem_ratio, awake_ratio, score, source, created_at, valid_ratio, gap_count, end_reason";
 
 function rowToSession(row: any): SessionRecord {
   return {
@@ -38,6 +38,9 @@ function rowToSession(row: any): SessionRecord {
     score: row.score,
     source: row.source,
     createdAt: row.created_at,
+    validRatio: row.valid_ratio ?? undefined,
+    gapCount: row.gap_count ?? undefined,
+    endReason: row.end_reason ?? undefined,
   };
 }
 
@@ -57,7 +60,7 @@ export class SQLiteRepository implements Repository {
     // SDK57 契約: tx 内のクエリは txn オブジェクトで実行必須。
     return this.db.withExclusiveTransactionAsync(async (tx: any) => {
       const result = await tx.runAsync(
-        "INSERT INTO sleep_sessions (start_ms, end_ms, sample_count, deep_ratio, light_ratio, rem_ratio, awake_ratio, score, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sleep_sessions (start_ms, end_ms, sample_count, deep_ratio, light_ratio, rem_ratio, awake_ratio, score, source, created_at, valid_ratio, gap_count, end_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
           session.startMs,
           session.endMs,
@@ -69,6 +72,9 @@ export class SQLiteRepository implements Repository {
           session.score,
           session.source,
           session.createdAt,
+          session.validRatio ?? null,
+          session.gapCount ?? null,
+          session.endReason ?? null,
         ]
       );
       const insertedId = result.lastInsertRowId as number;

@@ -36,6 +36,10 @@ export interface SessionRecord {
   score: number | null;
   source: string;
   createdAt: string;
+  /** sensor セッションのメタ（v2 列・csv では undefined） */
+  validRatio?: number;
+  gapCount?: number;
+  endReason?: string;
 }
 
 export interface SessionWithStages extends SessionRecord {

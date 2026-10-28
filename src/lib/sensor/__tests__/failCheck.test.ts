@@ -1,7 +1,14 @@
 import { validateAndJudge } from "../failCheck";
 import { generateSyntheticSeries } from "../fakeSensor";
+import type { FailVerdict } from "../types";
 
 const START = 1_700_000_000_000;
+
+/** 判定の narrow（verdict≠期待なら分かりやすいエラーで落とす） */
+function asFail(v: FailVerdict): Extract<FailVerdict, { verdict: "fail" }> {
+  if (v.verdict !== "fail") throw new Error(`expected fail, got ${v.verdict}`);
+  return v;
+}
 
 describe("validateAndJudge（spec §8・事前固定）", () => {
   it("連続100窓 → pass", () => {
@@ -16,9 +23,8 @@ describe("validateAndJudge（spec §8・事前固定）", () => {
       windows: 100,
       gapWindows: [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60],
     });
-    const v = validateAndJudge(r, 100, { nanRate: 0, stationaryRate: 0 });
-    expect(v.verdict).toBe("fail");
-    expect(v.reasons.some((s) => s.includes("valid_ratio"))).toBe(true);
+    const f = asFail(validateAndJudge(r, 100, { nanRate: 0, stationaryRate: 0 }));
+    expect(f.reasons.some((s) => s.includes("valid_ratio"))).toBe(true);
   });
 
   it("サンプル数0 → 独立した即時fail（r3 mm#1）", () => {
@@ -27,8 +33,8 @@ describe("validateAndJudge（spec §8・事前固定）", () => {
       100,
       { nanRate: 0, stationaryRate: 0 }
     );
-    expect(v.verdict).toBe("fail");
-    expect(v.reasons.some((s) => s.includes("zero_samples"))).toBe(true);
+    const f = asFail(v);
+    expect(f.reasons.some((s) => s.includes("zero_samples"))).toBe(true);
   });
 
   it("20分超の連続欠損（recovery無し）→ fail", () => {
@@ -38,14 +44,16 @@ describe("validateAndJudge（spec §8・事前固定）", () => {
       gapWindows: Array.from({ length: 125 }, (_, i) => i + 50),
     });
     const v = validateAndJudge(r, 300, { nanRate: 0, stationaryRate: 0 });
-    expect(v.verdict).toBe("fail");
-    expect(v.reasons.some((s) => s.includes("long_gap"))).toBe(true);
+    const f = asFail(v);
+    expect(f.reasons.some((s) => s.includes("long_gap"))).toBe(true);
   });
 
   it("30分以内の停止+再開 → degraded_pass（rubric）", () => {
     const r = generateSyntheticSeries({ startMs: START, windows: 100, gapWindows: [40, 41, 42] });
     const v = validateAndJudge(r, 100, { nanRate: 0, stationaryRate: 0 });
-    expect(v.verdict).toBe("degraded_pass");
+    if (v.verdict !== "degraded_pass") {
+      throw new Error(`expected degraded_pass, got ${v.verdict}`);
+    }
     expect(v.reasons.some((s) => s.includes("short_gap"))).toBe(true);
   });
 
@@ -53,7 +61,7 @@ describe("validateAndJudge（spec §8・事前固定）", () => {
     const r = generateSyntheticSeries({ startMs: START, windows: 100, pattern: "stationary" });
     const q = { nanRate: 0, stationaryRate: 1.0 };
     const v = validateAndJudge(r, 100, q);
-    expect(v.verdict).toBe("fail");
-    expect(v.reasons.some((s) => s.includes("stationary_rate"))).toBe(true);
+    const f = asFail(v);
+    expect(f.reasons.some((s) => s.includes("stationary_rate"))).toBe(true);
   });
 });

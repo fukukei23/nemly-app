@@ -144,15 +144,16 @@ function makeFakeDb(userVersion = 0): any {
 }
 
 describe("SQLiteRepository (migration framework 経由)", () => {
-  test("constructor で migrationRunner が走り v1 が適用される（新規 DB）", async () => {
+  test("constructor で migrationRunner が走り v1+v2 が適用される（新規 DB）", async () => {
     const db = makeFakeDb(0);
     const adapter = createFakeAdapter();
     const repo = new SQLiteRepository(db, adapter);
     await repo.countSessions(); // ready 待ちを兼ねる
-    expect(await adapter.getUserVersion(db)).toBe(1);
+    expect(await adapter.getUserVersion(db)).toBe(2);
     const rows = await adapter.getMigrations(db);
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(2);
     expect(rows[0].version).toBe(1);
+    expect(rows[1].version).toBe(2);
   });
 
   test("insertSession → listSessions → getSessionStages → deleteSession が一連で動く", async () => {
