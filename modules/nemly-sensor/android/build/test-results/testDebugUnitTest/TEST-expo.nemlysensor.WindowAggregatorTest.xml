@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="expo.nemlysensor.WindowAggregatorTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-28T00:20:02.415Z" hostname="WIN-E2IAVN1ESMH" time="0.302">
+  <properties/>
+  <testcase name="invalidEventsAreSkipped" classname="expo.nemlysensor.WindowAggregatorTest" time="0.189"/>
+  <testcase name="missingWindowProducesNoRow" classname="expo.nemlysensor.WindowAggregatorTest" time="0.001"/>
+  <testcase name="goldenParityWithTsReference" classname="expo.nemlysensor.WindowAggregatorTest" time="0.096"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
