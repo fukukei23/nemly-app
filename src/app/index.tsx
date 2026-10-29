@@ -12,21 +12,8 @@ import {
   nativeStartRecording,
   nativeStopRecording,
 } from '@/lib/sensor/nativeSource';
-
-function formatDay(startMs: number): string {
-  const d = new Date(startMs);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function formatDuration(startMs: number, endMs: number): string {
-  const minutes = Math.round((endMs - startMs) / 60000);
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return `${h}時間${m}分`;
-}
+import { SessionCard } from '@/components/ui/SessionCard';
+import { theme } from '@/constants/theme';
 
 /** FGS の終了書込完了を待つ（finished: 接頭辞 or 15秒タイムアウト） */
 async function waitForServiceStop(): Promise<boolean> {
@@ -35,6 +22,12 @@ async function waitForServiceStop(): Promise<boolean> {
     if (nativeGetStatus().startsWith('finished:')) return true;
   }
   return false;
+}
+
+function formatToday(): string {
+  const d = new Date();
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${weekdays[d.getDay()]}`;
 }
 
 export default function SessionListScreen() {
@@ -86,6 +79,8 @@ export default function SessionListScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
+        <Text style={styles.title}>Nemly</Text>
+        <Text style={styles.today}>{formatToday()}</Text>
         {loaded && sessions.length === 0 && (
           <Text style={styles.emptyText}>
             記録がありません。{'\n'}「計測を開始」でセンサー計測、{'\n'}「インポート」でCSVデータを取り込めます。
@@ -97,8 +92,14 @@ export default function SessionListScreen() {
           disabled={busy}
           testID="record-toggle"
         >
-          <Text style={styles.recordButtonText}>
-            {busy ? '処理中…' : recording ? '計測を停止' : '計測を開始'}
+          <View style={styles.recordHeader}>
+            <View style={[styles.pulseDot, recording && styles.pulseDotActive]} />
+            <Text style={styles.recordTitle}>
+              {busy ? '処理中…' : recording ? '計測を停止' : '睡眠計測'}
+            </Text>
+          </View>
+          <Text style={styles.recordAction}>
+            {busy ? '' : recording ? '■ 停止' : '▶ 開始'}
           </Text>
           {recording && <Text style={styles.recordingHint}>画面を閉じても計測は続きます</Text>}
         </Pressable>
@@ -106,18 +107,10 @@ export default function SessionListScreen() {
           data={sessions}
           keyExtractor={(item) => String(item.id)}
           renderItem={({ item }) => (
-            <Pressable
-              style={styles.card}
-              onPress={() => router.push(`/session/${item.id}`)}
-            >
-              <View style={styles.cardLeft}>
-                <Text style={styles.dateText}>{formatDay(item.startMs)}</Text>
-                <Text style={styles.durationText}>
-                  {formatDuration(item.startMs, item.endMs)}
-                </Text>
-              </View>
-              <Text style={styles.scoreText}>{item.score ?? '—'}</Text>
-            </Pressable>
+            <SessionCard
+              session={item}
+              onPress={(id) => router.push(`/session/${id}`)}
+            />
           )}
         />
         <Pressable
@@ -125,7 +118,7 @@ export default function SessionListScreen() {
           onPress={() => router.push('/import')}
           testID="import-button"
         >
-          <Text style={styles.importButtonText}>インポート</Text>
+          <Text style={styles.importButtonText}>CSVインポート</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -133,42 +126,78 @@ export default function SessionListScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f8fafc' },
-  container: { flex: 1, padding: 16 },
-  emptyText: {
-    textAlign: 'center',
-    color: '#64748b',
-    marginTop: 48,
-    lineHeight: 22,
+  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
+  container: { flex: 1, padding: theme.spacing.card },
+  title: {
+    ...theme.typography.title,
+    color: theme.colors.text,
   },
-  card: {
+  today: {
+    ...theme.typography.sub,
+    color: theme.colors.textSub,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.md,
+  },
+  emptyText: {
+    ...theme.typography.body,
+    color: theme.colors.textSub,
+    textAlign: 'center',
+    marginBottom: theme.spacing.md,
+  },
+  recordButton: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.card,
+    padding: theme.spacing.card,
+    marginBottom: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+  },
+  recordButtonActive: {
+    borderColor: theme.colors.accent,
+    borderWidth: 2,
+  },
+  recordHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
+    gap: theme.spacing.sm,
   },
-  cardLeft: { flex: 1 },
-  dateText: { fontSize: 16, fontWeight: '600', color: '#0f172a' },
-  durationText: { fontSize: 13, color: '#64748b', marginTop: 4 },
-  scoreText: { fontSize: 24, fontWeight: '700', color: '#4f46e5' },
+  pulseDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: theme.colors.textSub,
+  },
+  pulseDotActive: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: theme.colors.accent,
+  },
+  recordTitle: {
+    ...theme.typography.section,
+    color: theme.colors.text,
+  },
+  recordAction: {
+    fontSize: 30,
+    fontWeight: '700',
+    color: theme.colors.accent,
+    marginTop: theme.spacing.sm,
+  },
+  recordingHint: {
+    ...theme.typography.sub,
+    color: theme.colors.textSub,
+    marginTop: theme.spacing.sm,
+  },
   importButton: {
-    backgroundColor: '#4f46e5',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.card,
+    padding: theme.spacing.card,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
     alignItems: 'center',
   },
-  importButtonText: { color: '#ffffff', fontWeight: '600', fontSize: 16 },
-  recordButton: {
-    backgroundColor: '#10b981',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 12,
+  importButtonText: {
+    ...theme.typography.section,
+    color: theme.colors.accent,
   },
-  recordButtonActive: { backgroundColor: '#f43f5e' },
-  recordButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 16 },
-  recordingHint: { color: '#ffffff', fontSize: 12, marginTop: 4 },
 });
