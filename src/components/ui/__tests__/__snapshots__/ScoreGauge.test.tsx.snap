@@ -1,0 +1,5 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`ScoreGauge score=null のとき -- を表示する 1`] = `null`;
+
+exports[`ScoreGauge スコア数字とゴールド輪の円形を描画する 1`] = `null`;
