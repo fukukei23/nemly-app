@@ -16,6 +16,20 @@ object WindowAggregator {
   private const val MIN_DELAY_MS = -5_000L
   const val MIN_EVENTS_FOR_OK = 200 // 実効レート実測前の暫定閾値・1時間段で校正
 
+  /**
+   * 窓境界でイベント列を分割する（streaming 処理用・2026-10-29 追加）
+   *
+   * 境界未満（確定済み窓に属する）と境界以上（次窓以降）に分ける。
+   * 旧実装（NemlySensorService の events.clear() 全消去）のバグ修正用:
+   * 境界跨ぎのイベントを保持しないと次窓以降のイベント数が失われ、
+   * 低レート時に窓内イベントが枯渇する（2026-10-29 昼寝実測・ec=1 の窓が量産）。
+   */
+  fun partitionAtBoundary(events: List<RawEvent>, boundaryMs: Long): Pair<List<RawEvent>, List<RawEvent>> {
+    val done = events.filter { it.epochMs < boundaryMs }
+    val rest = events.filter { it.epochMs >= boundaryMs }
+    return Pair(done, rest)
+  }
+
   fun computeWindows(events: List<RawEvent>, startMs: Long, endMs: Long? = null): List<WindowSample> {
     val sorted = events.sortedBy { it.epochMs }
     if (sorted.isEmpty()) return emptyList()

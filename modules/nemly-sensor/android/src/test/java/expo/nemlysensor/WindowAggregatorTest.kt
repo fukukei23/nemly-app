@@ -74,4 +74,49 @@ class WindowAggregatorTest {
     assertEquals(1, windows.size)
     assertEquals(1, windows[0].eventCount)
   }
+
+  @Test
+  fun partitionAtBoundarySplitsAtExactBoundary() {
+    // 境界ちょうどのイベントは「次窓側」に属する（窓は [start, start+STEP) 区間）
+    val events = listOf(
+      RawEvent(0, 0.0, 0.0, 9.8),
+      RawEvent(5_000, 0.0, 0.0, 9.8),
+      RawEvent(10_000, 0.0, 0.0, 9.8),
+      RawEvent(15_000, 0.0, 0.0, 9.8)
+    )
+    val (done, rest) = WindowAggregator.partitionAtBoundary(events, 10_000)
+    assertEquals(2, done.size)
+    assertEquals(2, rest.size)
+  }
+
+  /**
+   * 回帰テスト（2026-10-29 昼寝実測バグ）: 旧実装は窓確定時に events.clear() で
+   * 次窓以降のイベントも消去するため、窓境界直後のイベントが失われ
+   * 低レート時に窓内イベントが枯渇（ec=1 の窓が量産・欠損窓増加）した。
+   * 窓0=3イベント・窓1=2イベントのストリームで、窓1が2イベントのまま書かれることを検証。
+   */
+  @Test
+  fun boundaryCrossingEventsSurviveWindowFlush() {
+    var windowStart = 0L
+    val events = mutableListOf<RawEvent>()
+    val written = mutableListOf<Pair<Long, Int>>()
+    val stream = listOf(1_000L, 2_000L, 3_000L, 12_000L, 14_000L, 22_000L)
+    for (t in stream) {
+      events.add(RawEvent(t, 0.0, 0.0, 9.8))
+      while (t >= windowStart + WindowAggregator.STEP_MS) {
+        val boundary = windowStart + WindowAggregator.STEP_MS
+        val (done, rest) = WindowAggregator.partitionAtBoundary(events, boundary)
+        if (done.isNotEmpty()) {
+          for (w in WindowAggregator.computeWindows(done, windowStart, boundary - 1)) {
+            written.add(Pair(w.tsMs, w.eventCount))
+          }
+        }
+        events.clear()
+        events.addAll(rest)
+        windowStart = boundary
+      }
+    }
+    assertEquals(Pair(0L, 3), written[0])
+    assertEquals(Pair(10_000L, 2), written[1])
+  }
 }

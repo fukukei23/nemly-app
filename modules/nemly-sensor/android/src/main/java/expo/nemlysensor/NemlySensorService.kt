@@ -12,6 +12,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 
@@ -32,6 +33,7 @@ class NemlySensorService : Service(), SensorEventListener {
   private var lpfInit = false
   private val events = mutableListOf<RawEvent>()
   private var retryCount = 0
+  private var wakeLock: PowerManager.WakeLock? = null
 
   companion object {
     const val CHANNEL_ID = "nemly_recording"
@@ -73,6 +75,11 @@ class NemlySensorService : Service(), SensorEventListener {
     dbHelper!!.startSession(sessionId, windowStartEpochMs)
 
     startForegroundCompat("Nemly 計測中")
+    // CPU suspend 防止（2026-10-29 昼寝実測: 画面OFFでセンサー配信が停止し欠損窓383/901）
+    // Sleep as Android 等の定番手法・上限10時間の安全弁つき
+    wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
+      .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "nemly:sensorRecording")
+    wakeLock?.acquire(10 * 60 * 60 * 1000L)
     // 2026-10-29 校正: GAME実効3.5Hz→UI（公称60Hz）で実測確認・FASTESTはMLR r1でバッテリー/JS飽和指摘により不採用
     sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
     isRunning = true
@@ -115,17 +122,22 @@ class NemlySensorService : Service(), SensorEventListener {
         )
       )
       if (epochMs >= windowStartEpochMs + WindowAggregator.STEP_MS) {
-        val win = WindowAggregator.computeWindows(
-          events.toList(),
-          windowStartEpochMs,
-          epochMs
-        )
-        for (w in win) {
-          db.insertSample(sessionId, w.tsMs, w.amplitude, w.quality, w.eventCount)
+        // 確定済み窓（境界未満）だけを処理し・次窓以降のイベントは保持する
+        //（旧実装は events.clear() で次窓以降も消去 → 低レート時に窓内イベントが
+        //  枯渇し ec=1 の窓が量産されるバグ・2026-10-29 昼寝実測で発見・修正）
+        while (epochMs >= windowStartEpochMs + WindowAggregator.STEP_MS) {
+          val boundary = windowStartEpochMs + WindowAggregator.STEP_MS
+          val (done, rest) = WindowAggregator.partitionAtBoundary(events, boundary)
+          if (done.isNotEmpty()) {
+            val win = WindowAggregator.computeWindows(done, windowStartEpochMs, boundary - 1)
+            for (w in win) {
+              db.insertSample(sessionId, w.tsMs, w.amplitude, w.quality, w.eventCount)
+            }
+          }
+          events.clear()
+          events.addAll(rest)
+          windowStartEpochMs = boundary
         }
-        events.clear()
-        val elapsed = (epochMs - windowStartEpochMs) / WindowAggregator.STEP_MS
-        windowStartEpochMs += WindowAggregator.STEP_MS * elapsed
       }
     }
   }
@@ -149,6 +161,8 @@ class NemlySensorService : Service(), SensorEventListener {
       db.finishSession(sessionId, System.currentTimeMillis(), reason)
     }
     sensorManager.unregisterListener(this)
+    wakeLock?.let { if (it.isHeld) it.release() }
+    wakeLock = null
     isRunning = false
     lastStatus = "finished:$sessionId"
     Log.i(TAG, "recording finished: $sessionId reason=$reason")
