@@ -39,6 +39,20 @@ describe("computeWindows（spec §5 数式の参照実装）", () => {
     expect(r[0]!.eventCount).toBe(1);
   });
 
+  it("quality: 159イベント=DEGRADED(1)・160イベント=OK(0)（160校正・2026-10-29 WakeLock適用後40.38Hz実測×10s×40%）", () => {
+    const mkEvents = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        epochMs: i * 10,
+        x: 0,
+        y: 0,
+        z: 9.8,
+      }));
+    const r159 = computeWindows(mkEvents(159), 0, 10_000);
+    const r160 = computeWindows(mkEvents(160), 0, 10_000);
+    expect(r159[0]!.quality).toBe(1);
+    expect(r160[0]!.quality).toBe(0);
+  });
+
   it("summarizeQuality: 定常率と有効窓率を数える", () => {
     const windows = [
       { tsMs: 0, amplitude: 0.001, quality: 0 as const, eventCount: 500 },

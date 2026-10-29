@@ -64,6 +64,19 @@ class WindowAggregatorTest {
   }
 
   @Test
+  fun degradedThresholdBoundary160() {
+    // 2026-10-29 校正: 実効レート40.38Hz実測（WakeLock適用後）×10s×40%=160
+    // 159イベント=DEGRADED(1)・160イベント=OK(0)
+    val mk = { n: Int ->
+      (0 until n).map { i -> RawEvent(i * 10L, 0.0, 0.0, 9.8) }
+    }
+    val r159 = WindowAggregator.computeWindows(mk(159), 0, 10_000)
+    val r160 = WindowAggregator.computeWindows(mk(160), 0, 10_000)
+    assertEquals(1, r159[0].quality)
+    assertEquals(0, r160[0].quality)
+  }
+
+  @Test
   fun invalidEventsAreSkipped() {
     val events = listOf(
       RawEvent(0, Double.NaN, 0.0, 9.8),

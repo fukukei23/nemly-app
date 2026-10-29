@@ -14,7 +14,7 @@ object WindowAggregator {
   private const val ALPHA = 0.8
   private const val MAX_VALID_NORM = 100.0
   private const val MIN_DELAY_MS = -5_000L
-  const val MIN_EVENTS_FOR_OK = 200 // 実効レート実測前の暫定閾値・1時間段で校正
+  const val MIN_EVENTS_FOR_OK = 160 // 2026-10-29 校正: 実効レート40.38Hz実測（WakeLock適用後）×10s×40%=161（spec §5 定義・旧200はGAME低レート時代の値）
 
   /**
    * 窓境界でイベント列を分割する（streaming 処理用・2026-10-29 追加）

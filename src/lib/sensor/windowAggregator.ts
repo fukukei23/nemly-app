@@ -72,7 +72,7 @@ export function computeWindows(
     out.push({
       tsMs: startMs + w * STEP_MS,
       amplitude,
-      quality: mags.length < 200 ? 1 : 0, // 実効レート実測前の暫定閾値・1時間段で校正
+      quality: mags.length < 160 ? 1 : 0, // 2026-10-29 校正: 実効レート40.38Hz実測（WakeLock適用後）×10s×40%=161（spec §5 定義・旧200はGAME低レート時代の値）
       eventCount: mags.length,
     });
   }
