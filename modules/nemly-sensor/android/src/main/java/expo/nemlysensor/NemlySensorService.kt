@@ -73,7 +73,8 @@ class NemlySensorService : Service(), SensorEventListener {
     dbHelper!!.startSession(sessionId, windowStartEpochMs)
 
     startForegroundCompat("Nemly 計測中")
-    sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
+    // 2026-10-29 校正: GAME実効3.5Hz→UI（公称60Hz）で実測確認・FASTESTはMLR r1でバッテリー/JS飽和指摘により不採用
+    sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
     isRunning = true
     lastStatus = "recording:$sessionId"
     Log.i(TAG, "recording started: $sessionId")

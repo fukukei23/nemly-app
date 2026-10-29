@@ -79,7 +79,7 @@ export function computeWindows(
   return out;
 }
 
-const STATIONARY_THRESHOLD = 0.05;
+const STATIONARY_THRESHOLD = 0.01; // 2026-10-29 校正: 昨夜DB実測（机p50=0.0043・ベッド>=0.01=15.15%非定常）に基づく・0.05はp99.1相当で微細体動を全て定常と数えていた
 
 export function summarizeQuality(
   windows: SensorSample[],

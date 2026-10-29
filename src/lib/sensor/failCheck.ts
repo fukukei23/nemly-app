@@ -8,7 +8,7 @@ import type { FailVerdict, GapInterval } from "./types";
 
 const MIN_VALID_RATIO = 0.9; // r3 glm#7 で 60%→90%（実機1時間段で校正）
 const LONG_GAP_MS = 20 * 60_000; // 20分超の連続欠損
-const MAX_STATIONARY_RATE = 0.1;
+const MAX_STATIONARY_RATE = 0.90; // 2026-10-29 校正: 机検出ゲート（机94.7%定常=fail・ベッド84.9%=pass・実機DB実測）・暫定値（恒久確定は最低3夜の分布確認後）
 const MAX_NAN_RATE = 0.01;
 
 export function validateAndJudge(
