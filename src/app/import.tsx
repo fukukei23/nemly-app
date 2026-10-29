@@ -8,6 +8,7 @@ import { router } from 'expo-router';
 import { parseActivityTxt, analyzeSleep } from '@/lib/csvImport';
 import { insertSession } from '@/lib/repository';
 import { initializeSqliteRepositoryAsync } from '@/lib/sqliteRepository';
+import { theme } from '@/constants/theme';
 
 export default function ImportScreen() {
   const [busy, setBusy] = useState(false);
@@ -82,20 +83,22 @@ export default function ImportScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f8fafc' },
-  container: { flex: 1, padding: 24 },
-  heading: { fontSize: 20, fontWeight: '700', color: '#0f172a', marginBottom: 12 },
-  body: { fontSize: 15, color: '#334155', lineHeight: 24 },
-  note: { fontSize: 13, color: '#64748b', marginTop: 12, lineHeight: 20 },
+  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
+  container: { flex: 1, padding: theme.spacing.lg },
+  heading: { ...theme.typography.section, fontSize: 20, color: theme.colors.text, marginBottom: theme.spacing.md },
+  body: { fontSize: 15, color: theme.colors.text, lineHeight: 24 },
+  note: { ...theme.typography.sub, color: theme.colors.textSub, marginTop: theme.spacing.md, lineHeight: 20 },
   pickButton: {
     marginTop: 32,
-    backgroundColor: '#4f46e5',
-    color: '#ffffff',
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.accent,
     fontWeight: '600',
     fontSize: 16,
     textAlign: 'center',
-    padding: 16,
-    borderRadius: 12,
+    padding: theme.spacing.card,
+    borderRadius: theme.radius.card,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
     overflow: 'hidden',
   },
   spinner: { marginTop: 32 },

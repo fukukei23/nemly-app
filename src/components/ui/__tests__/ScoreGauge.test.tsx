@@ -1,15 +1,15 @@
 import React from "react";
-import TestRenderer from "react-test-renderer";
 import { ScoreGauge } from "../ScoreGauge";
+import { renderUI } from "./renderUI";
 
 describe("ScoreGauge", () => {
-  it("スコア数字とゴールド輪の円形を描画する", () => {
-    const tree = TestRenderer.create(<ScoreGauge score={67} />).toJSON();
+  it("スコア数字とゴールド輪の円形を描画する", async () => {
+    const tree = (await renderUI(<ScoreGauge score={67} />)).toJSON();
     expect(tree).toMatchSnapshot();
   });
 
-  it("score=null のとき -- を表示する", () => {
-    const tree = TestRenderer.create(<ScoreGauge score={null} />).toJSON();
+  it("score=null のとき -- を表示する", async () => {
+    const tree = (await renderUI(<ScoreGauge score={null} />)).toJSON();
     expect(tree).toMatchSnapshot();
   });
 });

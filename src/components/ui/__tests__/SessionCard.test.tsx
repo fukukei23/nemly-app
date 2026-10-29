@@ -1,6 +1,6 @@
 import React from "react";
-import TestRenderer from "react-test-renderer";
 import { SessionCard } from "../SessionCard";
+import { renderUI } from "./renderUI";
 
 const base = {
   id: 1,
@@ -17,15 +17,15 @@ const base = {
 };
 
 describe("SessionCard", () => {
-  it("日付・時間・スコア・ミニヒプノグラムを描画する", () => {
-    const tree = TestRenderer.create(<SessionCard session={{ ...base }} onPress={jest.fn()} />).toJSON();
+  it("日付・時間・スコア・ミニヒプノグラムを描画する", async () => {
+    const tree = (await renderUI(<SessionCard session={{ ...base }} onPress={jest.fn()} />)).toJSON();
     expect(tree).toMatchSnapshot();
   });
 
-  it("score=null のとき -- 表示", () => {
-    const tree = TestRenderer.create(
+  it("score=null のとき -- 表示", async () => {
+    const tree = (await renderUI(
       <SessionCard session={{ ...base, score: null, source: "csv" }} onPress={jest.fn()} />,
-    ).toJSON();
+    )).toJSON();
     expect(tree).toMatchSnapshot();
   });
 });

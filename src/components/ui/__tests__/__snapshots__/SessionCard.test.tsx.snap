@@ -1,5 +1,299 @@
 // Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
-exports[`SessionCard score=null のとき -- 表示 1`] = `null`;
+exports[`SessionCard score=null のとき -- 表示 1`] = `
+<View
+  accessibilityState={
+    {
+      "busy": undefined,
+      "checked": undefined,
+      "disabled": undefined,
+      "expanded": undefined,
+      "selected": undefined,
+    }
+  }
+  accessibilityValue={
+    {
+      "max": undefined,
+      "min": undefined,
+      "now": undefined,
+      "text": undefined,
+    }
+  }
+  accessible={true}
+  collapsable={false}
+  focusable={true}
+  onBlur={[Function]}
+  onClick={[Function]}
+  onFocus={[Function]}
+  onResponderGrant={[Function]}
+  onResponderMove={[Function]}
+  onResponderRelease={[Function]}
+  onResponderTerminate={[Function]}
+  onResponderTerminationRequest={[Function]}
+  onStartShouldSetResponder={[Function]}
+  style={
+    {
+      "backgroundColor": "#1A2233",
+      "borderRadius": 12,
+      "marginBottom": 12,
+      "padding": 16,
+    }
+  }
+>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#8A94AC",
+          "fontSize": 13,
+        }
+      }
+    >
+      2026-10-25
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#F0D080",
+          "fontSize": 40,
+          "fontWeight": "700",
+        }
+      }
+    >
+      --
+    </Text>
+  </View>
+  <Text
+    style={
+      {
+        "color": "#E8ECF4",
+        "fontSize": 16,
+        "marginTop": 4,
+      }
+    }
+  >
+    7時間43分
+  </Text>
+  <View
+    style={
+      {
+        "borderRadius": 11,
+        "flexDirection": "row",
+        "height": 14,
+        "marginTop": 12,
+        "overflow": "hidden",
+      }
+    }
+  >
+    <View
+      style={
+        [
+          {
+            "height": 14,
+          },
+          {
+            "backgroundColor": "#3B4FA0",
+            "flex": 0.22,
+          },
+        ]
+      }
+    />
+    <View
+      style={
+        [
+          {
+            "height": 14,
+          },
+          {
+            "backgroundColor": "#8B5FC7",
+            "flex": 0.13,
+          },
+        ]
+      }
+    />
+    <View
+      style={
+        [
+          {
+            "height": 14,
+          },
+          {
+            "backgroundColor": "#E08A4A",
+            "flex": 0.01,
+          },
+        ]
+      }
+    />
+    <View
+      style={
+        [
+          {
+            "height": 14,
+          },
+          {
+            "backgroundColor": "#4A5A78",
+            "flex": 0.64,
+          },
+        ]
+      }
+    />
+  </View>
+</View>
+`;
 
-exports[`SessionCard 日付・時間・スコア・ミニヒプノグラムを描画する 1`] = `null`;
+exports[`SessionCard 日付・時間・スコア・ミニヒプノグラムを描画する 1`] = `
+<View
+  accessibilityState={
+    {
+      "busy": undefined,
+      "checked": undefined,
+      "disabled": undefined,
+      "expanded": undefined,
+      "selected": undefined,
+    }
+  }
+  accessibilityValue={
+    {
+      "max": undefined,
+      "min": undefined,
+      "now": undefined,
+      "text": undefined,
+    }
+  }
+  accessible={true}
+  collapsable={false}
+  focusable={true}
+  onBlur={[Function]}
+  onClick={[Function]}
+  onFocus={[Function]}
+  onResponderGrant={[Function]}
+  onResponderMove={[Function]}
+  onResponderRelease={[Function]}
+  onResponderTerminate={[Function]}
+  onResponderTerminationRequest={[Function]}
+  onStartShouldSetResponder={[Function]}
+  style={
+    {
+      "backgroundColor": "#1A2233",
+      "borderRadius": 12,
+      "marginBottom": 12,
+      "padding": 16,
+    }
+  }
+>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#8A94AC",
+          "fontSize": 13,
+        }
+      }
+    >
+      2026-10-25
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#F0D080",
+          "fontSize": 40,
+          "fontWeight": "700",
+        }
+      }
+    >
+      67
+    </Text>
+  </View>
+  <Text
+    style={
+      {
+        "color": "#E8ECF4",
+        "fontSize": 16,
+        "marginTop": 4,
+      }
+    }
+  >
+    7時間43分
+  </Text>
+  <View
+    style={
+      {
+        "borderRadius": 11,
+        "flexDirection": "row",
+        "height": 14,
+        "marginTop": 12,
+        "overflow": "hidden",
+      }
+    }
+  >
+    <View
+      style={
+        [
+          {
+            "height": 14,
+          },
+          {
+            "backgroundColor": "#3B4FA0",
+            "flex": 0.22,
+          },
+        ]
+      }
+    />
+    <View
+      style={
+        [
+          {
+            "height": 14,
+          },
+          {
+            "backgroundColor": "#8B5FC7",
+            "flex": 0.13,
+          },
+        ]
+      }
+    />
+    <View
+      style={
+        [
+          {
+            "height": 14,
+          },
+          {
+            "backgroundColor": "#E08A4A",
+            "flex": 0.01,
+          },
+        ]
+      }
+    />
+    <View
+      style={
+        [
+          {
+            "height": 14,
+          },
+          {
+            "backgroundColor": "#4A5A78",
+            "flex": 0.64,
+          },
+        ]
+      }
+    />
+  </View>
+</View>
+`;

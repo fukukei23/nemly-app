@@ -1,3 +1,51 @@
 // Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
-exports[`HypnogramBar stage配列をphase色の横バー列で描画する 1`] = `null`;
+exports[`HypnogramBar stage配列をphase色の横バー列で描画する 1`] = `
+<View
+  style={
+    {
+      "alignItems": "flex-end",
+      "borderRadius": 11,
+      "flexDirection": "row",
+      "overflow": "hidden",
+    }
+  }
+>
+  <View
+    style={
+      {
+        "backgroundColor": "#3B4FA0",
+        "flex": 1,
+        "height": 36,
+      }
+    }
+  />
+  <View
+    style={
+      {
+        "backgroundColor": "#4A5A78",
+        "flex": 1,
+        "height": 36,
+      }
+    }
+  />
+  <View
+    style={
+      {
+        "backgroundColor": "#8B5FC7",
+        "flex": 1,
+        "height": 36,
+      }
+    }
+  />
+  <View
+    style={
+      {
+        "backgroundColor": "#E08A4A",
+        "flex": 1,
+        "height": 36,
+      }
+    }
+  />
+</View>
+`;
