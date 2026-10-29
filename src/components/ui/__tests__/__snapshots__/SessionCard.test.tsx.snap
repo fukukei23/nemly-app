@@ -1,0 +1,5 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`SessionCard score=null のとき -- 表示 1`] = `null`;
+
+exports[`SessionCard 日付・時間・スコア・ミニヒプノグラムを描画する 1`] = `null`;
