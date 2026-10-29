@@ -16,12 +16,12 @@
 
 **Files:**
 - Create: `src/constants/theme.ts`
-- Test: `src/constants/theme.test.ts`
+- Test: `src/constants/__tests__/theme.test.ts`
 
 - [ ] **Step 1: 失敗テストを書く**
 
 ```ts
-// src/constants/theme.test.ts
+// src/constants/__tests__/theme.test.ts
 import { theme } from "./theme";
 
 describe("theme", () => {
@@ -66,7 +66,7 @@ describe("theme", () => {
 
 - [ ] **Step 2: テスト失敗を確認**
 
-Run: `npx jest src/constants/theme.test.ts`
+Run: `npx jest src/constants/__tests__/theme.test.ts`
 Expected: FAIL（theme not found）
 
 - [ ] **Step 3: theme.tsを実装**
@@ -113,13 +113,13 @@ export const theme = {
 
 - [ ] **Step 4: テスト通過を確認**
 
-Run: `npx jest src/constants/theme.test.ts`
+Run: `npx jest src/constants/__tests__/theme.test.ts`
 Expected: PASS（4 tests）
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/constants/theme.ts src/constants/theme.test.ts
+git add src/constants/theme.ts src/constants/__tests__/theme.test.ts
 git commit -m "feat(uiux): theme.ts新設（深夜パレット一元定義・一貫性テスト）"
 ```
 
