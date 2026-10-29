@@ -10,14 +10,9 @@ import {
   type SleepStageRow,
   type StagePhase,
 } from '@/lib/repository';
-
-const PHASE_COLORS: Record<StagePhase, string> = {
-  DEEP: '#4f46e5',
-  LIGHT: '#38bdf8',
-  REM: '#f59e0b',
-  AWAKE: '#f43f5e',
-  BROKEN: '#cbd5e1',
-};
+import { ScoreGauge } from '@/components/ui/ScoreGauge';
+import { HypnogramBar } from '@/components/ui/HypnogramBar';
+import { theme } from '@/constants/theme';
 
 const PHASE_LABELS: Record<StagePhase, string> = {
   DEEP: '深い睡眠',
@@ -32,23 +27,10 @@ function formatClock(ms: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-function HypnogramBar({ stages }: { stages: SleepStageRow[] }) {
-  return (
-    <View style={styles.hypnogramRow}>
-      {stages.map((stage) => (
-        <View
-          key={stage.tsMs}
-          style={{ flex: 1, backgroundColor: PHASE_COLORS[stage.phase], height: 36 }}
-        />
-      ))}
-    </View>
-  );
-}
-
 function RatioRow({ phase, ratio }: { phase: StagePhase; ratio: number }) {
   return (
     <View style={styles.ratioRow}>
-      <View style={[styles.ratioSwatch, { backgroundColor: PHASE_COLORS[phase] }]} />
+      <View style={[styles.ratioSwatch, { backgroundColor: theme.colors.phase[phase] }]} />
       <Text style={styles.ratioLabel}>{PHASE_LABELS[phase]}</Text>
       <Text style={styles.ratioValue}>{Math.round(ratio * 100)}%</Text>
     </View>
@@ -99,11 +81,16 @@ export default function SessionDetailScreen() {
         <Text style={styles.dateText}>
           {new Date(session.startMs).toLocaleDateString('ja-JP')}
         </Text>
-        <Text style={styles.scoreText}>{session.score ?? '—'}</Text>
-        <Text style={styles.scoreLabel}>スコア</Text>
-        <Text style={styles.durationText}>
-          {formatClock(session.startMs)} 〜 {formatClock(session.endMs)}（{h}時間{m}分）
-        </Text>
+        <View style={styles.scoreRow}>
+          <ScoreGauge score={session.score} />
+          <View style={styles.scoreMeta}>
+            <Text style={styles.scoreLabel}>スコア</Text>
+            <Text style={styles.durationText}>
+              {formatClock(session.startMs)} 〜 {formatClock(session.endMs)}
+            </Text>
+            <Text style={styles.durationText}>{h}時間{m}分</Text>
+          </View>
+        </View>
 
         {session.source === 'sensor' && (
           <Text style={styles.sensorMetaText}>
@@ -131,33 +118,34 @@ export default function SessionDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f8fafc' },
-  container: { flex: 1, padding: 24 },
-  loading: { textAlign: 'center', marginTop: 48, color: '#64748b' },
-  dateText: { fontSize: 16, color: '#64748b' },
-  scoreText: { fontSize: 56, fontWeight: '700', color: '#4f46e5', marginTop: 8 },
-  scoreLabel: { fontSize: 13, color: '#94a3b8', marginBottom: 12 },
-  durationText: { fontSize: 15, color: '#334155', marginBottom: 24 },
-  sensorMetaText: { fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 20 },
-  sectionTitle: { fontSize: 14, fontWeight: '600', color: '#0f172a', marginBottom: 8, marginTop: 8 },
-  hypnogramRow: {
+  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
+  container: { flex: 1, padding: theme.spacing.lg },
+  loading: { textAlign: 'center', marginTop: 48, color: theme.colors.textSub },
+  dateText: { ...theme.typography.sub, color: theme.colors.textSub },
+  scoreRow: {
     flexDirection: 'row',
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    gap: theme.spacing.card,
+    marginTop: theme.spacing.sm,
+    marginBottom: theme.spacing.md,
   },
+  scoreMeta: { flex: 1 },
+  scoreLabel: { ...theme.typography.sub, color: theme.colors.textSub, marginBottom: 4 },
+  durationText: { ...theme.typography.body, color: theme.colors.text },
+  sensorMetaText: { ...theme.typography.sub, color: theme.colors.textSub, marginBottom: theme.spacing.card, lineHeight: 20 },
+  sectionTitle: { ...theme.typography.section, color: theme.colors.text, marginBottom: theme.spacing.sm, marginTop: theme.spacing.sm },
   timeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 4,
   },
-  timeText: { fontSize: 12, color: '#94a3b8' },
+  timeText: { ...theme.typography.sub, color: theme.colors.textSub },
   ratioRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 6,
   },
-  ratioSwatch: { width: 12, height: 12, borderRadius: 3, marginRight: 8 },
-  ratioLabel: { flex: 1, fontSize: 14, color: '#334155' },
-  ratioValue: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
+  ratioSwatch: { width: 12, height: 12, borderRadius: 3, marginRight: theme.spacing.sm },
+  ratioLabel: { flex: 1, fontSize: 14, color: theme.colors.text },
+  ratioValue: { fontSize: 14, fontWeight: '600', color: theme.colors.text },
 });
