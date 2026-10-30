@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
@@ -13,7 +13,14 @@ import {
   nativeStopRecording,
 } from '@/lib/sensor/nativeSource';
 import { SessionCard } from '@/components/ui/SessionCard';
+import { ResultDialog, type ResultTone } from '@/components/ui/ResultDialog';
 import { theme } from '@/constants/theme';
+
+type ResultDialogState = {
+  title: string;
+  message: string;
+  tone: ResultTone;
+} | null;
 
 /** FGS の終了書込完了を待つ（finished: 接頭辞 or 15秒タイムアウト） */
 async function waitForServiceStop(): Promise<boolean> {
@@ -35,6 +42,7 @@ export default function SessionListScreen() {
   const [loaded, setLoaded] = useState(false);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [dialog, setDialog] = useState<ResultDialogState>(null);
 
   const refreshSessions = async () => {
     const rows = await listSessions();
@@ -64,11 +72,11 @@ export default function SessionListScreen() {
         const res = await importSensorSession(createNativeSensorSource());
         await refreshSessions();
         if (res.verdict === 'fail') {
-          Alert.alert('計測の判定: fail', res.reasons.join('\n'));
+          setDialog({ title: '計測の判定: fail', message: res.reasons.join('\n'), tone: 'fail' });
         } else if (res.verdict === 'degraded_pass') {
-          Alert.alert('計測を取り込みました（条件付き許容）', res.reasons.join('\n'));
+          setDialog({ title: '計測を取り込みました（条件付き許容）', message: res.reasons.join('\n'), tone: 'warn' });
         } else {
-          Alert.alert('計測を取り込みました', '一覧に表示されています');
+          setDialog({ title: '計測を取り込みました', message: '一覧に表示されています', tone: 'ok' });
         }
       }
     } finally {
@@ -120,6 +128,13 @@ export default function SessionListScreen() {
         >
           <Text style={styles.importButtonText}>CSVインポート</Text>
         </Pressable>
+        <ResultDialog
+          visible={dialog !== null}
+          title={dialog?.title ?? ''}
+          message={dialog?.message ?? ''}
+          tone={dialog?.tone ?? 'ok'}
+          onClose={() => setDialog(null)}
+        />
       </View>
     </SafeAreaView>
   );
