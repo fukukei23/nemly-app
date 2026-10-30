@@ -65,3 +65,105 @@ describe("validateAndJudge（spec §8・事前固定）", () => {
     expect(f.reasons.some((s) => s.includes("stationary_rate"))).toBe(true);
   });
 });
+
+describe("時間帯制限（2026-10-31・常時ON運用対応・バックログP2）", () => {
+  // ローカル時刻で構築（どのTZで実行しても同じ「壁時計の時刻」になる）
+  const at = (y: number, m: number, d: number, h: number, min = 0) =>
+    new Date(y, m, d, h, min).getTime();
+
+  const samplesWith = (windows: { tsMs: number; amplitude: number }[]) => ({
+    samples: windows.map((w) => ({ tsMs: w.tsMs, amplitude: w.amplitude, quality: 0, eventCount: 600 })),
+    gaps: [],
+    validRatio: 1,
+  });
+
+  it("睡眠帯内（23時）の stationary 100% 窓 → fail（机検出は睡眠帯で有効）", () => {
+    const windows = Array.from({ length: 12 }, (_, i) => ({
+      tsMs: at(2026, 9, 31, 23) + i * 10_000,
+      amplitude: 0.001,
+    }));
+    const v = validateAndJudge(samplesWith(windows), 12, {
+      nanRate: 0,
+      stationaryRate: 1.0,
+      windows,
+    });
+    const f = asFail(v);
+    expect(f.reasons.some((s) => s.includes("stationary_rate"))).toBe(true);
+  });
+
+  it("時間帯外のみ（昼12時・stationary 100%）→ stationaryゲート発動せず pass（must-pass回帰）", () => {
+    const windows = Array.from({ length: 12 }, (_, i) => ({
+      tsMs: at(2026, 9, 31, 12) + i * 10_000,
+      amplitude: 0.001,
+    }));
+    const v = validateAndJudge(samplesWith(windows), 12, {
+      nanRate: 0,
+      stationaryRate: 1.0,
+      windows,
+    });
+    expect(v.verdict).toBe("pass");
+  });
+
+  it("日跨ぎ: 23時窓（定常）+ 翌01時窓（非定常）→ 睡眠帯だけで判定され fail", () => {
+    const night1 = Array.from({ length: 6 }, (_, i) => ({
+      tsMs: at(2026, 9, 31, 23, 30) + i * 10_000,
+      amplitude: 0.001,
+    }));
+    const night2 = Array.from({ length: 6 }, (_, i) => ({
+      tsMs: at(2026, 10, 1, 1) + i * 10_000,
+      amplitude: 0.5,
+    }));
+    const windows = [...night1, ...night2];
+    const v = validateAndJudge(samplesWith(windows), 12, {
+      nanRate: 0,
+      stationaryRate: 0.5,
+      windows,
+    });
+    // 睡眠帯12窓のうち定常6窓 = 50% < 90% で stationary は発動しない・ただし全体的な
+    // stationaryRate 0.5 も睡眠帯再計算で 50% に上書き → pass
+    expect(v.verdict).toBe("pass");
+  });
+
+  it("境界 22:00 の窓は判定内・21:59 の窓は判定外", () => {
+    // 21:59 の定常10窓 + 22:00 の定常1窓 → 判定内は 1/1=100% で fail
+    const windows = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        tsMs: at(2026, 9, 31, 21, 59) - i * 10_000 + 40_000,
+        amplitude: 0.001,
+      })),
+      { tsMs: at(2026, 9, 31, 22), amplitude: 0.001 },
+    ];
+    const v = validateAndJudge(samplesWith(windows), 11, {
+      nanRate: 0,
+      stationaryRate: 1.0,
+      windows,
+    });
+    const f = asFail(v);
+    expect(f.reasons.some((s) => s.includes("stationary_rate"))).toBe(true);
+  });
+
+  it("境界 08:00 の窓は判定外・07:59 は判定内", () => {
+    // 07:59 の定常10窓（判定内・100%）+ 08:00 以降の非定常窓 → fail（判定内で100%）
+    const windows = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        tsMs: at(2026, 9, 31, 7, 59) + i * 10_000,
+        amplitude: 0.001,
+      })),
+      { tsMs: at(2026, 9, 31, 8), amplitude: 0.5 },
+    ];
+    const v = validateAndJudge(samplesWith(windows), 11, {
+      nanRate: 0,
+      stationaryRate: 10 / 11,
+      windows,
+    });
+    const f = asFail(v);
+    expect(f.reasons.some((s) => s.includes("stationary_rate"))).toBe(true);
+  });
+
+  it("windows 未指定なら従来どおり stationaryRate を使う（CSV等の既存経路は不変）", () => {
+    const r = generateSyntheticSeries({ startMs: START, windows: 100, pattern: "stationary" });
+    const v = validateAndJudge(r, 100, { nanRate: 0, stationaryRate: 1.0 });
+    const f = asFail(v);
+    expect(f.reasons.some((s) => s.includes("stationary_rate"))).toBe(true);
+  });
+});

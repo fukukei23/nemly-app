@@ -36,7 +36,11 @@ export async function importSensorSession(
   const verdict = validateAndJudge(
     { samples, gaps: summary.gaps, validRatio: summary.validRatio },
     expectedWindows,
-    { nanRate: summary.nanRate, stationaryRate: summary.stationaryRate }
+    {
+      nanRate: summary.nanRate,
+      stationaryRate: summary.stationaryRate,
+      windows: samples.map((s) => ({ tsMs: s.tsMs, amplitude: s.amplitude })),
+    }
   );
 
   if (verdict.verdict === "fail") {
