@@ -28,6 +28,13 @@ function withWakeBlock(
   return [...samples, ...block];
 }
 
+/** 当日のローカル時刻（時・分）の epoch ms を生成（sessionType テストの TZ env 非依存化用） */
+function localTs(hour: number, minute = 0): number {
+  const d = new Date();
+  d.setHours(hour, minute, 0, 0);
+  return d.getTime();
+}
+
 describe("parseActivityTxt", () => {
   test("5列形式（cols0=ts・cols2=amp）をパースする", () => {
     const content = "1792867680000,1.0,2.5,0,0\n1792867690000,1.0,3.5,1,0\n";
@@ -132,5 +139,20 @@ describe("analyzeSleep", () => {
     const result = analyzeSleep([{ ts: 1_792_867_680_000, amp: 0.01 }]);
     expect(result.stages).toHaveLength(1);
     expect(result.sampleCount).toBe(1);
+  });
+
+  test("睡眠帯内開始（03:48ローカル）は sessionType='night' で DURATION 夜寝基準が適用される", () => {
+    // 100分の静かな系列 → DURATION(100分) は夜寝基準（210-360分）で不合格 → DEEP/EFF 合格で 2/3=67
+    const result = analyzeSleep(quietSamples(600, localTs(3, 48)));
+    expect(result.sessionType).toBe("night");
+    expect(result.score).toBe(67);
+  });
+
+  test("睡眠帯外開始（11:18ローカル）は sessionType='nap' で DURATION_NAP 基準が適用される", () => {
+    // ふくけいの昼寝 11:09 開始と同型・ローカル時刻で生成するため TZ env に依存しない
+    const result = analyzeSleep(quietSamples(600, localTs(11, 18)));
+    expect(result.sessionType).toBe("nap");
+    // DURATION(100分) は昼寝基準（20-120分）で合格 → DEEP/EFF も合格で 3/3=100
+    expect(result.score).toBe(100);
   });
 });

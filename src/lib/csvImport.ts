@@ -21,8 +21,10 @@ import {
   postProcessDeepIntervals,
   detectREM,
   type Interval,
+  type SessionType,
   type SleepPhase,
 } from "./sleepAlgorithm/index";
+import { isInSleepWindow } from "./sensor/failCheck";
 import type { SleepStageRow, StagePhase } from "./repository";
 
 /** 原典現行版（v20261006 相当・getMinDeepSleepLength=15分・getDeepSleepThreshold=3.1 固定・正典: hypnogramGeneration.ts の version 対応表） */
@@ -45,6 +47,8 @@ export interface AnalyzeResult {
   remRatio: number;
   awakeRatio: number;
   score: number | null;
+  /** セッション種別: 開始時刻が睡眠帯（22:00-08:00）内=night・外=nap（DURATION しきい値が切替わる） */
+  sessionType: SessionType;
   stages: SleepStageRow[];
 }
 
@@ -144,10 +148,12 @@ export function analyzeSleep(samples: ParsedSample[]): AnalyzeResult {
   const remRatio = countOf("REM") / total;
   const awakeRatio = countOf("AWAKE") / total;
 
-  // 6. スコア（CSV 算出可能な 3 測定のみ・§4 合否比率）
+  // 6. スコア（CSV 算出可能な 3 測定のみ・§4 合否比率・DURATION はセッション種別で切替）
   const startMs = samples[0]!.ts;
   const endMs = samples[samples.length - 1]!.ts;
+  const sessionType: SessionType = isInSleepWindow(startMs) ? "night" : "nap";
   const calc = new SleepScoreCalculator();
+  if (sessionType === "nap") calc.setSessionType("nap");
   const durationMin = (endMs - startMs) / 60_000;
   calc.updateMeasure("DURATION", durationMin);
   calc.updateMeasure("DEEP_SLEEP", deepRatio);
@@ -163,6 +169,7 @@ export function analyzeSleep(samples: ParsedSample[]): AnalyzeResult {
     remRatio,
     awakeRatio,
     score: calc.getScorePercentage(),
+    sessionType,
     stages,
   };
 }

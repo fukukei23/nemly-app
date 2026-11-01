@@ -5,8 +5,12 @@
 
 export type MeasureType = 'RANGE' | 'HIGHER_IS_BETTER' | 'LOWER_IS_BETTER';
 
+/** セッション種別: night=睡眠帯（22:00-08:00）内開始・nap=睡眠帯外開始 */
+export type SessionType = 'night' | 'nap';
+
 export type MeasureKey =
   | 'DURATION'
+  | 'DURATION_NAP'
   | 'DEEP_SLEEP'
   | 'EFFICIENCY'
   | 'IRREGULARITY'
@@ -22,9 +26,15 @@ export interface MeasureSpec {
   limitNegative: number;
 }
 
-/** 測定項目のしきい値表（仕様メモ §4.2・数値はそのまま再現） */
+/**
+ * 測定項目のしきい値表（仕様メモ §4.2 を基に DURATION はセッション種別で分岐）。
+ * DURATION は 180-480分（3-8時間・ふくけい指示「3-4時間はあり得る・8時間まで幅広く」2026-11-01・
+ * 旧値 410-540 は「夜寝7時間超」前提で実睡眠に届かずスコア67固定になった・進捗追記7）。
+ * DURATION_NAP は 20-120分（パワーナップ〜1.5サイクル・仕様メモに昼寝の項は無いため自前設計・§4.4的裁量）。
+ */
 export const MEASURE_SPECS: Record<MeasureKey, MeasureSpec> = {
-  DURATION: { type: 'RANGE', limitPositive: 410, limitNegative: 540 },
+  DURATION: { type: 'RANGE', limitPositive: 180, limitNegative: 480 },
+  DURATION_NAP: { type: 'RANGE', limitPositive: 20, limitNegative: 120 },
   DEEP_SLEEP: { type: 'HIGHER_IS_BETTER', limitPositive: 0.2, limitNegative: 0.1 },
   EFFICIENCY: { type: 'HIGHER_IS_BETTER', limitPositive: 0.95, limitNegative: 0.85 },
   IRREGULARITY: { type: 'HIGHER_IS_BETTER', limitPositive: 0.9, limitNegative: 0.75 },
@@ -58,6 +68,7 @@ function clamp100(v: number): number {
 export class SleepScoreCalculator {
   private score = 0;
   private maxScore = 0;
+  private sessionType: SessionType = 'night';
   private durationSpec: MeasureSpec = { ...MEASURE_SPECS.DURATION };
 
   constructor(private readonly options: { idealSleepMinutes?: number } = {}) {}
@@ -74,9 +85,20 @@ export class SleepScoreCalculator {
     // 26-64歳は初期値のまま
   }
 
+  /** セッション種別で DURATION しきい値を切替（nap は 20-120分固定・年齢しきい値を適用しない） */
+  setSessionType(type: SessionType): void {
+    this.sessionType = type;
+  }
+
   /** 測定値を入力し合否・進捗・色を得る（呼び出しごとに集計に加算される） */
   updateMeasure(key: MeasureKey, value: number): MeasureResult {
-    const spec = key === 'DURATION' ? this.durationSpec : (MEASURE_SPECS[key] as MeasureSpec);
+    // nap は setAge の適用順に依存しないよう updateMeasure 時点で常に DURATION_NAP を優先
+    const spec =
+      key === 'DURATION' && this.sessionType === 'nap'
+        ? MEASURE_SPECS.DURATION_NAP
+        : key === 'DURATION'
+          ? this.durationSpec
+          : (MEASURE_SPECS[key] as MeasureSpec);
     this.maxScore++;
     const result = this.evaluate(spec, key, value);
     if (result.passed) this.score++;
