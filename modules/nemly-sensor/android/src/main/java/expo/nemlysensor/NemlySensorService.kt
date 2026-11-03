@@ -212,8 +212,11 @@ class NemlySensorService : Service(), SensorEventListener {
       lastStatus = "failed:$sessionId"
       Log.e(TAG, "finishSession failed: $sessionId reason=$reason", e)
     } finally {
-      // 設計書 §3: 途中で例外が起きても後片付け（unregister/release/stopSelf）を必ず実行
-      sensorManager.unregisterListener(this)
+      // 設計書 §3: 途中で例外が起きても後片付け（unregister/release/stopSelf）を必ず実行。
+      // sensorManager は lateinit のため、ACTION_STOP が startRecording を通っていない
+      // Service instance に届いた場合（JS state が recording だが FGS が死んでいる等）は
+      // 未初期化アクセスで crash する — isInitialized ガードで防ぐ（2026-11-03 21:54 繰り返し停止の修正）
+      if (::sensorManager.isInitialized) sensorManager.unregisterListener(this)
       wakeLock?.let { if (it.isHeld) it.release() }
       wakeLock = null
       isRunning = false
