@@ -40,5 +40,10 @@ describe("isFinishedStatus", () => {
     it("JSON形式でもisFinishedStatusがtrueになる（修正前はfalseだった不具合）", () => {
       expect(isFinishedStatus('{"status":"finished:s-1","sessionId":"s-1"}')).toBe(true);
     });
+
+    it("statusキー無しのJSON → 元文字列を返す（isFinishedStatus=false・autoImport.ts L25分岐）", () => {
+      expect(parseNativeStatus('{"sessionId":"s-1"}')).toBe('{"sessionId":"s-1"}');
+      expect(isFinishedStatus('{"sessionId":"s-1"}')).toBe(false);
+    });
   });
 });

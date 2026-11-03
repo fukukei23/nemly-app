@@ -105,4 +105,10 @@ describe("summarizeSessions", () => {
     expect(s.dailyScores[6].score).toBeNull(); // 当日は計測なし
     expect(s.dailyScores[5].score).toBe(67); // 昨日
   });
+
+  it("未来のセッション（startMs > now）は集計から除外される", () => {
+    const sessions = [makeSession({ startMs: NOW_MS + 3600000 })];
+    const s = summarizeSessions(sessions, "week", NOW_MS);
+    expect(s.count).toBe(0);
+  });
 });
