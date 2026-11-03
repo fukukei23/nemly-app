@@ -1,0 +1,97 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`MetricGauge 値とラベルの小円を描画する 1`] = `
+<View
+  style={
+    {
+      "alignItems": "center",
+    }
+  }
+>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "backgroundColor": "transparent",
+        "borderColor": "#7C6FF0",
+        "borderRadius": 36,
+        "borderWidth": 4,
+        "height": 72,
+        "justifyContent": "center",
+        "width": 72,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#E8ECF4",
+          "fontSize": 17,
+          "fontWeight": "700",
+        }
+      }
+    >
+      3:39
+    </Text>
+  </View>
+  <Text
+    style={
+      {
+        "color": "#8A94AC",
+        "fontSize": 13,
+        "marginTop": 4,
+      }
+    }
+  >
+    睡眠時間
+  </Text>
+</View>
+`;
+
+exports[`MetricGauge 欠損値（--）も描画できる 1`] = `
+<View
+  style={
+    {
+      "alignItems": "center",
+    }
+  }
+>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "backgroundColor": "transparent",
+        "borderColor": "#7C6FF0",
+        "borderRadius": 36,
+        "borderWidth": 4,
+        "height": 72,
+        "justifyContent": "center",
+        "width": 72,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#E8ECF4",
+          "fontSize": 17,
+          "fontWeight": "700",
+        }
+      }
+    >
+      --
+    </Text>
+  </View>
+  <Text
+    style={
+      {
+        "color": "#8A94AC",
+        "fontSize": 13,
+        "marginTop": 4,
+      }
+    }
+  >
+    効率
+  </Text>
+</View>
+`;

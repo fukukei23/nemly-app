@@ -11,7 +11,9 @@ import {
   type StagePhase,
 } from '@/lib/repository';
 import { ScoreGauge } from '@/components/ui/ScoreGauge';
+import { MetricGauge } from '@/components/ui/MetricGauge';
 import { HypnogramBar } from '@/components/ui/HypnogramBar';
+import { formatSleepDuration, formatRatioPercent } from '@/lib/metrics';
 import { theme } from '@/constants/theme';
 
 const PHASE_LABELS: Record<StagePhase, string> = {
@@ -92,6 +94,12 @@ export default function SessionDetailScreen() {
           </View>
         </View>
 
+        <View style={styles.metricsRow}>
+          <MetricGauge value={formatSleepDuration(minutes)} label="睡眠時間" />
+          <MetricGauge value={formatRatioPercent(session.deepRatio)} label="深い睡眠" />
+          <MetricGauge value={formatRatioPercent(session.validRatio)} label="効率" />
+        </View>
+
         {session.source === 'sensor' && (
           <Text style={styles.sensorMetaText}>
             計測: {session.endReason === 'user_stop' ? '手動停止' : (session.endReason ?? '—')}
@@ -132,6 +140,11 @@ const styles = StyleSheet.create({
   scoreMeta: { flex: 1 },
   scoreLabel: { ...theme.typography.sub, color: theme.colors.textSub, marginBottom: 4 },
   durationText: { ...theme.typography.body, color: theme.colors.text },
+  metricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: theme.spacing.md,
+  },
   sensorMetaText: { ...theme.typography.sub, color: theme.colors.textSub, marginBottom: theme.spacing.card, lineHeight: 20 },
   sectionTitle: { ...theme.typography.section, color: theme.colors.text, marginBottom: theme.spacing.sm, marginTop: theme.spacing.sm },
   timeRow: {
