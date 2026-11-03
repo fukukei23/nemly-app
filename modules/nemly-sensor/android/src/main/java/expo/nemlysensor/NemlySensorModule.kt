@@ -58,6 +58,11 @@ class NemlySensorModule : Module() {
     }
 
     Function("getLastSessionId") { NemlySensorService.lastSessionId }
+
+    // 起動時取り込み用（2026-11-03・force-stop後のidle問題で静的ステータスからは検知できないためDB直接問い合わせ）
+    Function("getPendingSessionId") {
+      SensorDbHelper(appContext.reactContext!!).getPendingSessionId() ?: ""
+    }
   }
 
   private fun parseEvents(json: String): List<RawEvent> {

@@ -44,6 +44,11 @@ export async function importSensorSession(
   );
 
   if (verdict.verdict === "fail") {
+    // 2026-11-03 変更: fail でもネイティブからは purge する（起動時取り込みが
+    // pending を毎回検知してダイアログが無限表示になるのを防ぐ・purgeSession は
+    // samples+native_sessions の両方を消す）。fail セッションの保持ポリシー
+    //（fail 一覧可視化・再 import）はバックログ d0e3 で別途設計する
+    await source.confirmImported(meta.sessionId);
     return { verdict: "fail", reasons: verdict.reasons, sessionId: null };
   }
 

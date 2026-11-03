@@ -11,6 +11,7 @@ type NativeModule = {
   confirmImported(sessionId: string): string;
   getStatus(): string;
   getLastSessionId(): string;
+  getPendingSessionId(): string;
 };
 
 function loadNative(): NativeModule {
@@ -25,8 +26,9 @@ export function createNativeSensorSource(): SensorSeriesSource {
   const native = loadNative();
   return {
     async pullSeries() {
-      const lastSessionId = native.getLastSessionId();
-      const json = await native.pullSeries(lastSessionId);
+      // 未取り込み（finished）セッションを優先（起動時取り込み・2026-11-03）・なければ直近セッション
+      const sessionId = native.getPendingSessionId() || native.getLastSessionId();
+      const json = await native.pullSeries(sessionId);
       const parsed = JSON.parse(json) as {
         samples: import("./types").SensorSample[];
         meta: import("./types").SeriesMeta;
@@ -37,6 +39,10 @@ export function createNativeSensorSource(): SensorSeriesSource {
       native.confirmImported(sessionId);
     },
   };
+}
+
+export function nativeGetPendingSessionId(): string {
+  return loadNative().getPendingSessionId();
 }
 
 export function nativeStartRecording(durationMinutes?: number): string {

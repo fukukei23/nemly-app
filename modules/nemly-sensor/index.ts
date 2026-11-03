@@ -12,6 +12,8 @@ export interface NemlySensorModuleType {
   confirmImported(sessionId: string): string;
   getStatus(): string;
   getLastSessionId(): string;
+  /** 未取り込み（status='finished'）の最新セッションID・なければ空文字（2026-11-03） */
+  getPendingSessionId(): string;
 }
 
 export default requireNativeModule('NemlySensor') as NemlySensorModuleType;

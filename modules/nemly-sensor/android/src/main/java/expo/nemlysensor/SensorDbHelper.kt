@@ -104,7 +104,19 @@ class SensorDbHelper(context: Context) :
     return Pair(sb.toString(), meta)
   }
 
+  /** 取り込み完了後の削除（samples+native_sessions・finished 行が残ると起動時 pending 検知が無限ヒットするため・2026-11-03） */
   fun purgeSession(sessionId: String) {
     writableDatabase.delete("samples", "session_id = ?", arrayOf(sessionId))
+    writableDatabase.delete("native_sessions", "session_id = ?", arrayOf(sessionId))
+  }
+
+  /** 未取り込み（status='finished'）の最新セッションID（起動時取り込み用・2026-11-03・force-stop後は静的ステータスがidleに戻るためDBを見る） */
+  fun getPendingSessionId(): String? {
+    readableDatabase.rawQuery(
+      "SELECT session_id FROM native_sessions WHERE status='finished' ORDER BY ended_at_ms DESC LIMIT 1",
+      null
+    ).use { c ->
+      return if (c.moveToFirst()) c.getString(0) else null
+    }
   }
 }

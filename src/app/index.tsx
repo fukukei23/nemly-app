@@ -9,6 +9,7 @@ import { importSensorSession } from '@/lib/sensor/sensorImport';
 import { isFinishedStatus } from '@/lib/sensor/autoImport';
 import {
   createNativeSensorSource,
+  nativeGetPendingSessionId,
   nativeGetStatus,
   nativeStartRecording,
   nativeStopRecording,
@@ -99,7 +100,14 @@ export default function SessionListScreen() {
     (async () => {
       await initializeSqliteRepositoryAsync();
       await refreshSessions();
-      await syncFromNativeStatus(nativeGetStatus());
+      try {
+        // 起動時取り込み: 未取り込み（finished）セッションはネイティブDBを直接見る
+        //（force-stop後は静的ステータスがidleに戻るためgetStatusでは検知できない・2026-11-03実測）
+        const pending = nativeGetPendingSessionId();
+        await syncFromNativeStatus(pending ? `finished:${pending}` : nativeGetStatus());
+      } catch {
+        // 起動時取り込みはダイアログ内で例外を表示する・ここでは握らないため再throwしない（sync内で処理済み）
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

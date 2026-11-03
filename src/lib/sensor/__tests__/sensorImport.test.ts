@@ -7,7 +7,11 @@ import {
 
 const START = 1_700_000_000_000;
 
-function fakeSource(windows: number, gapWindows?: number[]): SensorSeriesSource {
+function fakeSource(
+  windows: number,
+  gapWindows?: number[],
+  confirmed: string[] = []
+): SensorSeriesSource {
   const r = generateSyntheticSeries({ startMs: START, windows, gapWindows });
   return {
     async pullSeries() {
@@ -23,7 +27,7 @@ function fakeSource(windows: number, gapWindows?: number[]): SensorSeriesSource 
       };
     },
     async confirmImported() {
-      /* purge 呼び出しのスタブ */
+      confirmed.push("s-test-1");
     },
   };
 }
@@ -43,13 +47,15 @@ describe("importSensorSession", () => {
     expect(all[0]!.endReason).toBe("user_stop");
   });
 
-  it("fail 系列（20分超欠損）→ 保存せず verdict を返す（immutable failed）", async () => {
+  it("fail 系列（20分超欠損）→ 保存せず verdict を返す・ただし confirmImported は呼ぶ（2026-11-03 変更・起動時取り込みの無限 pending 防止）", async () => {
+    const confirmed: string[] = [];
     const res = await importSensorSession(
-      fakeSource(300, Array.from({ length: 125 }, (_, i) => i + 50))
+      fakeSource(300, Array.from({ length: 125 }, (_, i) => i + 50), confirmed)
     );
     expect(res.verdict).toBe("fail");
     expect(res.sessionId).toBeNull();
     expect(await listSessions()).toHaveLength(0);
+    expect(confirmed).toEqual(["s-test-1"]);
   });
 
   it("degraded 系列（30分以内の短欠損）→ 保存する（verdict=degraded_pass）", async () => {
