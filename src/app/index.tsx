@@ -30,7 +30,7 @@ type ResultDialogState = {
 async function waitForServiceStop(): Promise<boolean> {
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 500));
-    if (nativeGetStatus().startsWith('finished:')) return true;
+    if (isFinishedStatus(nativeGetStatus())) return true;
   }
   return false;
 }
