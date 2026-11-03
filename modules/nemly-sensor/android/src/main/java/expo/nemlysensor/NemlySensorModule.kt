@@ -15,6 +15,9 @@ class NemlySensorModule : Module() {
     Function("startRecording") { durationMinutes: Double? ->
       val ctx = appContext.reactContext
         ?: return@Function "error:no_context"
+      // MLR r3 GLM#3: 新規セッション開始時は retryCount をリセット（companion 静的化の副作用・
+      // プロセス生存中の計測開始/停止繰り返しで上限に達してしまうのを防ぐ）
+      NemlySensorService.retryCount = 0
       val intent = Intent(ctx, NemlySensorService::class.java)
       if (durationMinutes != null && durationMinutes > 0) {
         intent.setAction(NemlySensorService.ACTION_START_WITH_TIMER)

@@ -174,6 +174,10 @@ export default function SessionListScreen() {
         }
         const res = await importSensorSession(createNativeSensorSource());
         await refreshSessions();
+        // MLR r3 GLM#1: 手動停止経路でもガードを設定（取り込み直後のAppState復帰で
+        // 同一セッションを finished 検知して再試行するのを防ぐ・空系列沈黙掃除になるため実害小だが正しく設定）
+        const stoppedSid = parseNativeStatus(nativeGetStatus()).replace('finished:', '');
+        if (stoppedSid) lastImportedRef.current = stoppedSid;
         if (res.verdict === 'fail') {
           setDialog({ title: '計測の判定: fail', message: res.reasons.join('\n'), tone: 'fail' });
         } else if (res.verdict === 'degraded_pass') {
