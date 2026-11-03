@@ -56,44 +56,55 @@ export default function SessionListScreen() {
     setLoaded(true);
   };
 
+  /**
+   * 機能C: ネイティブに未取り込みの finished セッションがあれば取り込む。
+   * 起動時（force-stop/クラッシュ後の漏れ防止）と AppState 復帰時（タイマー自動停止後）の
+   * 両方から呼ぶ（11-03 実機観察: アプリ起動時は change イベントが来ず取り込み漏れになる実測）。
+   * finished 検知時は recording 表示も解除する（ネイティブは停止済みのため）。
+   */
+  const syncFromNativeStatus = async (status: string) => {
+    if (status.startsWith('recording:')) {
+      setRecording(true);
+      return;
+    }
+    if (isFinishedStatus(status)) setRecording(false);
+    if (!isFinishedStatus(status)) return;
+    const sid = status.replace('finished:', '');
+    if (sid === lastImportedRef.current) return;
+    lastImportedRef.current = sid;
+    setBusy(true);
+    try {
+      const res = await importSensorSession(createNativeSensorSource());
+      await refreshSessions();
+      if (res.verdict === 'fail') {
+        setDialog({ title: '計測の判定: fail', message: res.reasons.join('\n'), tone: 'fail' });
+      } else if (res.verdict === 'degraded_pass') {
+        setDialog({ title: '昼寝を取り込みました（条件付き許容）', message: res.reasons.join('\n'), tone: 'warn' });
+      } else {
+        setDialog({ title: '昼寝を取り込みました', message: '一覧に表示されています', tone: 'ok' });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   useEffect(() => {
     (async () => {
       await initializeSqliteRepositoryAsync();
       await refreshSessions();
+      await syncFromNativeStatus(nativeGetStatus());
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 機能C: AppState復帰時にタイマー自動停止済みセッションを取り込む（JSは停止をトリガーしないため）
+  // 機能C: AppState復帰時も同チェック（タイマー自動停止はJSをトリガーにしないため）
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
-      const status = nativeGetStatus();
-      if (status.startsWith('recording:')) {
-        setRecording(true);
-        return;
-      }
-      if (!isFinishedStatus(status)) return;
-      const sid = status.replace('finished:', '');
-      if (sid === lastImportedRef.current) return;
-      lastImportedRef.current = sid;
-      (async () => {
-        setBusy(true);
-        try {
-          const res = await importSensorSession(createNativeSensorSource());
-          await refreshSessions();
-          if (res.verdict === 'fail') {
-            setDialog({ title: '計測の判定: fail', message: res.reasons.join('\n'), tone: 'fail' });
-          } else if (res.verdict === 'degraded_pass') {
-            setDialog({ title: '昼寝を取り込みました（条件付き許容）', message: res.reasons.join('\n'), tone: 'warn' });
-          } else {
-            setDialog({ title: '昼寝を取り込みました', message: '一覧に表示されています', tone: 'ok' });
-          }
-        } finally {
-          setBusy(false);
-        }
-      })();
+      void syncFromNativeStatus(nativeGetStatus());
     });
     return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** ショートカット開始（minutes指定=タイマー自動停止・省略=夜寝） */
