@@ -12,6 +12,9 @@ type NativeModule = {
   getStatus(): string;
   getLastSessionId(): string;
   getPendingSessionId(): string;
+  startImportLease(): string;
+  endImportLease(): string;
+  isImporting(): boolean;
 };
 
 function loadNative(): NativeModule {
@@ -62,4 +65,16 @@ export function nativeStopRecording(): string {
 
 export function nativeGetStatus(): string {
   return loadNative().getStatus();
+}
+
+export function nativeStartImportLease(): string {
+  return loadNative().startImportLease();
+}
+
+export function nativeEndImportLease(): string {
+  return loadNative().endImportLease();
+}
+
+export function nativeIsImporting(): boolean {
+  return loadNative().isImporting();
 }

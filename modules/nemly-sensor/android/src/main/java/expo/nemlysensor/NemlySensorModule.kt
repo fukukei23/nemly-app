@@ -9,10 +9,21 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * start / stop / pullSeries / confirmImported / getStatus
  */
 class NemlySensorModule : Module() {
+  companion object {
+    private const val IMPORT_LEASE_MS = 30_000L
+    @Volatile
+    private var importLeaseUntilMs: Long = 0L
+
+    /** 設計書 §4: 排他判定の正（JS state は表示制御のみ）。lease 形式で fire-and-forget 死亡時も30秒で自動解放 */
+    fun isImporting(): Boolean = System.currentTimeMillis() < importLeaseUntilMs
+  }
+
   override fun definition() = ModuleDefinition {
     Name("NemlySensor")
 
     Function("startRecording") { durationMinutes: Double? ->
+      // 設計書 §4: importing 中は startRecording のみ拒否（stopRecording は許可）
+      if (isImporting()) return@Function "error:importing"
       val ctx = appContext.reactContext
         ?: return@Function "error:no_context"
       // MLR r3 GLM#3: 新規セッション開始時は retryCount をリセット（companion 静的化の副作用・
@@ -66,6 +77,17 @@ class NemlySensorModule : Module() {
     Function("getPendingSessionId") {
       SensorDbHelper.get(appContext.reactContext!!).getPendingSessionId() ?: ""
     }
+
+    // 設計書 §4: import 排他 lease（JS から import 開始/終了時に呼ぶ・30秒自動期限切れ）
+    Function("startImportLease") {
+      importLeaseUntilMs = System.currentTimeMillis() + IMPORT_LEASE_MS
+      "ok"
+    }
+    Function("endImportLease") {
+      importLeaseUntilMs = 0L
+      "ok"
+    }
+    Function("isImporting") { isImporting() }
   }
 
   private fun parseEvents(json: String): List<RawEvent> {

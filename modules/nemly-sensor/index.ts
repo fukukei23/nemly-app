@@ -14,6 +14,10 @@ export interface NemlySensorModuleType {
   getLastSessionId(): string;
   /** 未取り込み（status='finished'）の最新セッションID・なければ空文字（2026-11-03） */
   getPendingSessionId(): string;
+  /** import 排他 lease（設計書 §4・30秒自動期限切れ・fire-and-forget 死亡時の flag 残留を防ぐ） */
+  startImportLease(): string;
+  endImportLease(): string;
+  isImporting(): boolean;
 }
 
 export default requireNativeModule('NemlySensor') as NemlySensorModuleType;
