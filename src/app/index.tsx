@@ -19,6 +19,12 @@ import {
   nativeIsImporting,
 } from '@/lib/sensor/nativeSource';
 import { waitForServiceStop } from '@/lib/sensor/waitForStop';
+import {
+  decideStart,
+  decideStop,
+  decideStopOutcome,
+  type ImportPhase,
+} from '@/lib/sensor/importGuard';
 import { SessionCard } from '@/components/ui/SessionCard';
 import { ResultDialog, type ResultTone } from '@/components/ui/ResultDialog';
 import { theme } from '@/constants/theme';
@@ -52,7 +58,7 @@ export default function SessionListScreen() {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   /** 設計書 §4: idle=処理なし / stopping=停止後の取り込み / recovering=起動時・復帰時の回収 */
-  const [importPhase, setImportPhase] = useState<'idle' | 'stopping' | 'recovering'>('idle');
+  const [importPhase, setImportPhase] = useState<ImportPhase>('idle');
   const [dialog, setDialog] = useState<ResultDialogState>(null);
   /** 自動取り込み済みのネイティブセッションID（AppState復帰時の二重取り込み防止） */
   const lastImportedRef = useRef('');
@@ -60,14 +66,14 @@ export default function SessionListScreen() {
    * MLR指摘（GLM#7・GLM#2）: fire-and-forget 完了後の setState 喪失防止と二重起動ガード。
    * state は再render後しか反映されないため同時実行判定は ref を正にする。
    */
-  const importPhaseRef = useRef<'idle' | 'stopping' | 'recovering'>('idle');
+  const importPhaseRef = useRef<ImportPhase>('idle');
   const mountedRef = useRef(true);
   useEffect(() => {
     return () => {
       mountedRef.current = false;
     };
   }, []);
-  const setPhase = (p: 'idle' | 'stopping' | 'recovering') => {
+  const setPhase = (p: ImportPhase) => {
     importPhaseRef.current = p;
     if (mountedRef.current) setImportPhase(p);
   };
@@ -194,17 +200,17 @@ export default function SessionListScreen() {
     const leaseToken = nativeAcquireLease();
     try {
       const ok = await waitForServiceStop(sid, () => nativeGetStatus());
-      if (!ok) {
-        const st = parseNativeStatus(nativeGetStatus());
-        if (st === `failed:${sid}`) {
-          // MLR指摘（MiniMax#10 対応）: ネイティブ側の failed:<sid> は回収対象外のため明示エラーで確定的に表示する
-          safeSetDialog({
-            title: '計測の取り込みに失敗しました',
-            message: '停止処理でエラーが発生しました（セッションが取り込み済みになっていません）。',
-            tone: 'fail',
-          });
-          return;
-        }
+      const outcome = decideStopOutcome(ok, nativeGetStatus(), sid);
+      if (outcome.kind === 'failed') {
+        // MLR指摘（MiniMax#10 対応）: ネイティブ側の failed:<sid> は回収対象外のため明示エラーで確定的に表示する
+        safeSetDialog({
+          title: '計測の取り込みに失敗しました',
+          message: '停止処理でエラーが発生しました（セッションが取り込み済みになっていません）。',
+          tone: 'fail',
+        });
+        return;
+      }
+      if (outcome.kind === 'timeout') {
         // GLM#5 対応を維持: タイムアウト時は recording 中系列の誤取り込みを避ける
         //（AppState 復帰時の finished 検知に取り込みを委ねる）
         safeSetDialog({
@@ -241,47 +247,46 @@ export default function SessionListScreen() {
   };
 
   const handleToggleRecording = async () => {
-    if (recording) {
-      // 設計書 §4: stopRecording は importing 中でも許可（start のみ拒否）
-      const sid = parseNativeStatus(nativeGetStatus()).replace('recording:', '') || nativeGetLastSessionId();
-      if (!sid) {
-        // MLR指摘（MiniMax#5・OR1#5）: 対象 sid が不明なら停止のみして回収に委譲
-        //（不正な sid で import を試みて15秒待つより安全）
-        nativeStopRecording();
-        setRecording(false);
-        safeSetDialog({
-          title: '計測を停止しました',
-          message: '停止対象の計測IDが確認できなかったため、取り込みは次回アプリ起動時に自動回収します。',
-          tone: 'warn',
-        });
-        return;
+    const stopDecision = decideStop(recording, nativeGetStatus(), nativeGetLastSessionId());
+    if (stopDecision.kind === 'ignore') {
+      // 計測開始の可否判定（純関数層・MLR指摘の未テスト領域を検証可能にする）
+      const startDecision = decideStart(busy, importPhaseRef.current, nativeIsImporting());
+      if (!startDecision.allowed) return;
+      setBusy(true);
+      try {
+        const result = nativeStartRecording();
+        if (result === 'error:importing') {
+          safeSetDialog({
+            title: '取り込み中です',
+            message: '前回の計測を取り込み中のため開始できません。終わるまでお待ちください。',
+            tone: 'warn',
+          });
+          return;
+        }
+        if (result.startsWith('error:')) {
+          safeSetDialog({ title: '計測を開始できませんでした', message: result, tone: 'fail' });
+          return;
+        }
+        setRecording(true);
+      } finally {
+        setBusy(false);
       }
-      nativeStopRecording();
-      setRecording(false);
-      void runStopImport(sid);
       return;
     }
-    // MLR指摘（GLM#2）: 開始パスにも importPhase ガードを追加（stopping/recovering 中の開始をブロック）
-    if (busy || importPhaseRef.current !== 'idle' || nativeIsImporting()) return;
-    setBusy(true);
-    try {
-      const result = nativeStartRecording();
-      if (result === 'error:importing') {
-        safeSetDialog({
-          title: '取り込み中です',
-          message: '前回の計測を取り込み中のため開始できません。終わるまでお待ちください。',
-          tone: 'warn',
-        });
-        return;
-      }
-      if (result.startsWith('error:')) {
-        safeSetDialog({ title: '計測を開始できませんでした', message: result, tone: 'fail' });
-        return;
-      }
-      setRecording(true);
-    } finally {
-      setBusy(false);
+    // 設計書 §4: stopRecording は importing 中でも許可（start のみ拒否）
+    nativeStopRecording();
+    setRecording(false);
+    if (stopDecision.kind === 'stop-unknown-session') {
+      // MLR指摘（MiniMax#5・OR1#5）: 対象 sid が不明なら停止のみして回収に委譲
+      //（不正な sid で 15秒待つより安全）
+      safeSetDialog({
+        title: '計測を停止しました',
+        message: '停止対象の計測IDが確認できなかったため、取り込みは次回アプリ起動時に自動回収します。',
+        tone: 'warn',
+      });
+      return;
     }
+    void runStopImport(stopDecision.sessionId);
   };
 
   return (

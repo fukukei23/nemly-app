@@ -17,6 +17,8 @@ type NativeModule = {
   isImporting(): boolean;
 };
 
+export type { NativeModule };
+
 function loadNative(): NativeModule {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mod = require("../../../modules/nemly-sensor/index") as {
@@ -25,8 +27,9 @@ function loadNative(): NativeModule {
   return mod.default;
 }
 
-export function createNativeSensorSource(): SensorSeriesSource {
-  const native = loadNative();
+export function createNativeSensorSource(
+  native: NativeModule = loadNative(),
+): SensorSeriesSource {
   return {
     async pullSeries() {
       // 未取り込み（finished）セッションを優先（起動時取り込み・2026-11-03）・なければ直近セッション
@@ -51,34 +54,37 @@ export function createNativeSensorSource(): SensorSeriesSource {
   };
 }
 
-export function nativeGetPendingSessionId(): string {
-  return loadNative().getPendingSessionId();
+export function nativeGetPendingSessionId(native: NativeModule = loadNative()): string {
+  return native.getPendingSessionId();
 }
 
-export function nativeStartRecording(durationMinutes?: number): string {
-  return loadNative().startRecording(durationMinutes);
+export function nativeStartRecording(
+  durationMinutes?: number,
+  native: NativeModule = loadNative(),
+): string {
+  return native.startRecording(durationMinutes);
 }
 
-export function nativeStopRecording(): string {
-  return loadNative().stopRecording();
+export function nativeStopRecording(native: NativeModule = loadNative()): string {
+  return native.stopRecording();
 }
 
-export function nativeGetStatus(): string {
-  return loadNative().getStatus();
+export function nativeGetStatus(native: NativeModule = loadNative()): string {
+  return native.getStatus();
 }
 
-export function nativeGetLastSessionId(): string {
-  return loadNative().getLastSessionId();
+export function nativeGetLastSessionId(native: NativeModule = loadNative()): string {
+  return native.getLastSessionId();
 }
 
-export function nativeAcquireLease(): number {
-  return loadNative().acquireLease();
+export function nativeAcquireLease(native: NativeModule = loadNative()): number {
+  return native.acquireLease();
 }
 
-export function nativeReleaseLease(token: number): boolean {
-  return loadNative().releaseLease(token);
+export function nativeReleaseLease(token: number, native: NativeModule = loadNative()): boolean {
+  return native.releaseLease(token);
 }
 
-export function nativeIsImporting(): boolean {
-  return loadNative().isImporting();
+export function nativeIsImporting(native: NativeModule = loadNative()): boolean {
+  return native.isImporting();
 }

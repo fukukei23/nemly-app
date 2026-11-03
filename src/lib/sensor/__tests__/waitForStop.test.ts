@@ -48,3 +48,26 @@ test("sleep は poll ごとに 200ms で呼ばれる", async () => {
   expect(sleeps.length).toBe(1);
   expect(sleeps[0]).toBe(200);
 });
+
+test("sleep 省略時はデフォルトの setTimeout sleep が使われる（省略分岐・実sleep 200ms）", async () => {
+  const start = Date.now();
+  const ok = await waitForServiceStop("s-1", () => "finished:s-1");
+  const elapsed = Date.now() - start;
+  expect(ok).toBe(true);
+  // デフォルト sleep が走った証拠: 200ms±タイマ誤差を事前固定閾値150msで判定（走っていなければ <50ms）
+  expect(elapsed).toBeGreaterThanOrEqual(150);
+});
+
+test("75回 poll 全て不一致なら最終 false を返す（上限境界）", async () => {
+  let pollCount = 0;
+  const ok = await waitForServiceStop(
+    "s-1",
+    () => {
+      pollCount++;
+      return "recording:s-1";
+    },
+    immediateSleep,
+  );
+  expect(ok).toBe(false);
+  expect(pollCount).toBe(75);
+});
