@@ -45,7 +45,12 @@ class SensorDbHelper private constructor(context: Context) :
   /** WAL+busy_timeout（設計書 §1・ロック競合時は1秒待つ→例外で fail-fast） */
   override fun onConfigure(db: SQLiteDatabase) {
     db.enableWriteAheadLogging()
-    db.execSQL("PRAGMA busy_timeout = $BUSY_TIMEOUT_MS")
+    // busy_timeout は PRAGMA=query のため execSQL では実行できない（SQLiteException
+    // "Queries can be performed using ... rawQuery methods only"・2026-11-03 21:53 実測で
+    // 初回 open→Service 起動失敗→START_STICKY 再配信の crash loop が発生）・rawQuery で実行する
+    db.rawQuery("PRAGMA busy_timeout = $BUSY_TIMEOUT_MS", null).use { c ->
+      c.moveToFirst()
+    }
   }
 
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
