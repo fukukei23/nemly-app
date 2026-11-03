@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { AppState, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
 import { listSessions, type SessionRecord } from '@/lib/repository';
 import { initializeSqliteRepositoryAsync } from '@/lib/sqliteRepository';
 import { importSensorSession } from '@/lib/sensor/sensorImport';
+import { isFinishedStatus } from '@/lib/sensor/autoImport';
 import {
   createNativeSensorSource,
   nativeGetStatus,
@@ -15,6 +16,9 @@ import {
 import { SessionCard } from '@/components/ui/SessionCard';
 import { ResultDialog, type ResultTone } from '@/components/ui/ResultDialog';
 import { theme } from '@/constants/theme';
+
+/** 昼寝ショートカットのタイマー（分・機能C） */
+const NAP_MINUTES = [30, 60, 90] as const;
 
 type ResultDialogState = {
   title: string;
@@ -43,6 +47,8 @@ export default function SessionListScreen() {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<ResultDialogState>(null);
+  /** 自動取り込み済みのネイティブセッションID（AppState復帰時の二重取り込み防止） */
+  const lastImportedRef = useRef('');
 
   const refreshSessions = async () => {
     const rows = await listSessions();
@@ -55,8 +61,47 @@ export default function SessionListScreen() {
       await initializeSqliteRepositoryAsync();
       await refreshSessions();
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 機能C: AppState復帰時にタイマー自動停止済みセッションを取り込む（JSは停止をトリガーしないため）
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const status = nativeGetStatus();
+      if (status.startsWith('recording:')) {
+        setRecording(true);
+        return;
+      }
+      if (!isFinishedStatus(status)) return;
+      const sid = status.replace('finished:', '');
+      if (sid === lastImportedRef.current) return;
+      lastImportedRef.current = sid;
+      (async () => {
+        setBusy(true);
+        try {
+          const res = await importSensorSession(createNativeSensorSource());
+          await refreshSessions();
+          if (res.verdict === 'fail') {
+            setDialog({ title: '計測の判定: fail', message: res.reasons.join('\n'), tone: 'fail' });
+          } else if (res.verdict === 'degraded_pass') {
+            setDialog({ title: '昼寝を取り込みました（条件付き許容）', message: res.reasons.join('\n'), tone: 'warn' });
+          } else {
+            setDialog({ title: '昼寝を取り込みました', message: '一覧に表示されています', tone: 'ok' });
+          }
+        } finally {
+          setBusy(false);
+        }
+      })();
+    });
+    return () => sub.remove();
+  }, []);
+
+  /** ショートカット開始（minutes指定=タイマー自動停止・省略=夜寝） */
+  const handleShortcutStart = (minutes?: number) => {
+    if (busy || recording) return;
+    nativeStartRecording(minutes);
+    setRecording(true);
+  };
 
   const handleToggleRecording = async () => {
     if (busy) return;
@@ -111,6 +156,29 @@ export default function SessionListScreen() {
           </Text>
           {recording && <Text style={styles.recordingHint}>画面を閉じても計測は続きます</Text>}
         </Pressable>
+        {!recording && (
+          <View style={styles.shortcutRow} testID="shortcut-row">
+            {NAP_MINUTES.map((min) => (
+              <Pressable
+                key={min}
+                style={styles.shortcutChip}
+                onPress={() => handleShortcutStart(min)}
+                disabled={busy}
+                testID={`nap-${min}`}
+              >
+                <Text style={styles.shortcutText}>昼寝{min}分</Text>
+              </Pressable>
+            ))}
+            <Pressable
+              style={styles.shortcutChip}
+              onPress={() => handleShortcutStart()}
+              disabled={busy}
+              testID="start-night"
+            >
+              <Text style={styles.shortcutText}>夜寝</Text>
+            </Pressable>
+          </View>
+        )}
         <FlatList
           data={sessions}
           keyExtractor={(item) => String(item.id)}
@@ -211,6 +279,24 @@ const styles = StyleSheet.create({
     ...theme.typography.sub,
     color: theme.colors.textSub,
     marginTop: theme.spacing.sm,
+  },
+  shortcutRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.md,
+  },
+  shortcutChip: {
+    flex: 1,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.chip,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+    paddingVertical: theme.spacing.sm,
+    alignItems: 'center',
+  },
+  shortcutText: {
+    ...theme.typography.sub,
+    color: theme.colors.accent,
   },
   bottomButtons: {
     flexDirection: 'row',

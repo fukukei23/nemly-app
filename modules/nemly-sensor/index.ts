@@ -5,7 +5,8 @@
 import { requireNativeModule } from 'expo-modules-core';
 
 export interface NemlySensorModuleType {
-  startRecording(): string;
+  /** durationMinutes 指定時はその経過後にネイティブ側で自動停止（機能C・昼寝ショートカット用） */
+  startRecording(durationMinutes?: number): string;
   stopRecording(): string;
   pullSeries(sessionId: string): Promise<string>;
   confirmImported(sessionId: string): string;

@@ -12,10 +12,14 @@ class NemlySensorModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("NemlySensor")
 
-    Function("startRecording") {
+    Function("startRecording") { durationMinutes: Double? ->
       val ctx = appContext.reactContext
         ?: return@Function "error:no_context"
       val intent = Intent(ctx, NemlySensorService::class.java)
+      if (durationMinutes != null && durationMinutes > 0) {
+        intent.setAction(NemlySensorService.ACTION_START_WITH_TIMER)
+        intent.putExtra(NemlySensorService.EXTRA_DURATION_MINUTES, durationMinutes.toLong())
+      }
       ctx.startForegroundService(intent)
       "started"
     }

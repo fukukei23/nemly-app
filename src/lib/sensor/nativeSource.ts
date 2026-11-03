@@ -5,7 +5,7 @@
 import type { SensorSeriesSource } from "./sensorImport";
 
 type NativeModule = {
-  startRecording(): string;
+  startRecording(durationMinutes?: number): string;
   stopRecording(): string;
   pullSeries(sessionId: string): Promise<string>;
   confirmImported(sessionId: string): string;
@@ -39,8 +39,8 @@ export function createNativeSensorSource(): SensorSeriesSource {
   };
 }
 
-export function nativeStartRecording(): string {
-  return loadNative().startRecording();
+export function nativeStartRecording(durationMinutes?: number): string {
+  return loadNative().startRecording(durationMinutes);
 }
 
 export function nativeStopRecording(): string {

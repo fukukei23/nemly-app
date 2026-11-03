@@ -11,7 +11,9 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
@@ -34,12 +36,17 @@ class NemlySensorService : Service(), SensorEventListener {
   private val events = mutableListOf<RawEvent>()
   private var retryCount = 0
   private var wakeLock: PowerManager.WakeLock? = null
+  private val timerHandler = Handler(Looper.getMainLooper())
+  private var autoStopRunnable: Runnable? = null
 
   companion object {
     const val CHANNEL_ID = "nemly_recording"
     const val NOTIFICATION_ID = 1
     const val MAX_RETRIES = 3
     const val ACTION_STOP = "expo.nemlysensor.ACTION_STOP"
+    const val ACTION_START_WITH_TIMER = "expo.nemlysensor.ACTION_START_WITH_TIMER"
+    const val EXTRA_DURATION_MINUTES = "duration_minutes"
+    const val EXTRA_STOP_REASON = "stop_reason"
     var isRunning = false
       private set
     var lastStatus = "idle"
@@ -52,7 +59,8 @@ class NemlySensorService : Service(), SensorEventListener {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
-      finishSession("user_stop")
+      cancelAutoStopTimer()
+      finishSession(intent.getStringExtra(EXTRA_STOP_REASON) ?: "user_stop")
       return START_NOT_STICKY
     }
     if (isRunning) return START_STICKY
@@ -85,7 +93,36 @@ class NemlySensorService : Service(), SensorEventListener {
     isRunning = true
     lastStatus = "recording:$sessionId"
     Log.i(TAG, "recording started: $sessionId")
+
+    // 機能C: タイマー付き開始（昼寝ショートカット）・FGS 生存中のみ有効（計測中は FGS 常駐前提）
+    if (intent?.action == ACTION_START_WITH_TIMER) {
+      val minutes = intent.getLongExtra(EXTRA_DURATION_MINUTES, 0L)
+      if (minutes > 0) {
+        scheduleAutoStop(minutes * 60_000L)
+      }
+    }
     return START_STICKY
+  }
+
+  /** durationMs 経過後に ACTION_STOP を自己送出（自動停止 reason=auto_timer） */
+  private fun scheduleAutoStop(durationMs: Long) {
+    cancelAutoStopTimer()
+    val runnable = Runnable {
+      if (!isRunning) return@Runnable
+      Log.i(TAG, "auto stop timer fired")
+      startService(
+        Intent(this, NemlySensorService::class.java)
+          .setAction(ACTION_STOP)
+          .putExtra(EXTRA_STOP_REASON, "auto_timer")
+      )
+    }
+    autoStopRunnable = runnable
+    timerHandler.postDelayed(runnable, durationMs)
+  }
+
+  private fun cancelAutoStopTimer() {
+    autoStopRunnable?.let { timerHandler.removeCallbacks(it) }
+    autoStopRunnable = null
   }
 
   private fun startForegroundCompat(text: String) {
@@ -171,6 +208,7 @@ class NemlySensorService : Service(), SensorEventListener {
   }
 
   override fun onDestroy() {
+    cancelAutoStopTimer()
     // START_STICKY が再配信しない kill を retry 上限で防御（spec §8・crash-loop 防御）
     if (isRunning) {
       retryCount++
