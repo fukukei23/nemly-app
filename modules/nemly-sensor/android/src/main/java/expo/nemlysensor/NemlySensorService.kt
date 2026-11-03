@@ -48,8 +48,8 @@ class NemlySensorService : Service(), SensorEventListener {
     const val EXTRA_STOP_REASON = "stop_reason"
     // MLR r2 GLM#1: インスタンスフィールドだと START_STICKY 再生成で上限が無効になるため静的にする
     //（プロセス死亡時はリセット=新規計測扱いが妥当・プロセス生存中の再生成では上限を維持）
+    // MLR r3 GLM#3: Module の startRecording で新規セッション開始時にリセットするため外部代入を許可
     var retryCount = 0
-      private set
     var isRunning = false
       private set
     var lastStatus = "idle"
