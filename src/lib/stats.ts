@@ -55,7 +55,11 @@ export function summarizeSessions(
   now: number
 ): StatsSummary {
   const days = dayCountOf(period);
-  const firstDayStart = startOfDay(now) - (days - 1) * DAY_MS;
+  // MLR 2026-11-03 GLM#3: DAY_MS 固定減算は DST 切替週でローカル日付境界からずれるため
+  // setDate ベースで算出する（日本は DST 無いが実装の一般性として・テストは非DST環境で同値）
+  const baseDay = new Date(startOfDay(now));
+  baseDay.setDate(baseDay.getDate() - (days - 1));
+  const firstDayStart = baseDay.getTime();
   const inPeriod = sessions.filter((s) => s.startMs >= firstDayStart && s.startMs <= now);
 
   const avgScore = mean(
@@ -67,8 +71,10 @@ export function summarizeSessions(
 
   const dailyScores: DailyScore[] = [];
   for (let i = 0; i < days; i++) {
-    const dayStart = startOfDay(now) - (days - 1 - i) * DAY_MS;
-    const dayEnd = dayStart + DAY_MS - 1;
+    const day = new Date(startOfDay(now));
+    day.setDate(day.getDate() - (days - 1 - i));
+    const dayStart = day.getTime();
+    const dayEnd = startOfDay(dayStart + 36 * 3600000) - 1;
     const daySessions = inPeriod.filter(
       (s) => s.startMs >= dayStart && s.startMs <= dayEnd
     );

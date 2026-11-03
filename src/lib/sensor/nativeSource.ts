@@ -33,6 +33,13 @@ export function createNativeSensorSource(): SensorSeriesSource {
         samples: import("./types").SensorSample[];
         meta: import("./types").SeriesMeta;
       };
+      // MLR 2026-11-03 GLM#4/OR1#2: ネイティブ側で行不在時に meta が "{}" になる契約のため
+      // sessionId 不在は明示例外にする（以降の purgeSession(undefined) 崩れ防止）
+      if (!parsed.meta?.sessionId) {
+        throw new Error(
+          `pullSeries returned no meta.sessionId (sessionId="${sessionId}")`
+        );
+      }
       return { samples: parsed.samples, meta: parsed.meta };
     },
     async confirmImported(sessionId: string) {

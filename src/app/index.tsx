@@ -6,7 +6,7 @@ import { router } from 'expo-router';
 import { listSessions, type SessionRecord } from '@/lib/repository';
 import { initializeSqliteRepositoryAsync } from '@/lib/sqliteRepository';
 import { importSensorSession } from '@/lib/sensor/sensorImport';
-import { isFinishedStatus } from '@/lib/sensor/autoImport';
+import { isFinishedStatus, parseNativeStatus } from '@/lib/sensor/autoImport';
 import {
   createNativeSensorSource,
   nativeGetPendingSessionId,
@@ -63,7 +63,10 @@ export default function SessionListScreen() {
    * 両方から呼ぶ（11-03 実機観察: アプリ起動時は change イベントが来ず取り込み漏れになる実測）。
    * finished 検知時は recording 表示も解除する（ネイティブは停止済みのため）。
    */
-  const syncFromNativeStatus = async (status: string) => {
+  const syncFromNativeStatus = async (rawStatus: string) => {
+    // MLR 2026-11-03 GLM#1: 呼び出し側が生の getStatus() JSON を渡すケースがあるため
+    // ここで必ず正規化する（recording 検知が JSON 形式だと常に失敗する実バグ）
+    const status = parseNativeStatus(rawStatus);
     if (status.startsWith('recording:')) {
       setRecording(true);
       return;
@@ -72,11 +75,12 @@ export default function SessionListScreen() {
     if (!isFinishedStatus(status)) return;
     const sid = status.replace('finished:', '');
     if (sid === lastImportedRef.current) return;
-    lastImportedRef.current = sid;
     setBusy(true);
     try {
       const res = await importSensorSession(createNativeSensorSource());
       await refreshSessions();
+      // MLR 2026-11-03 GLM#2: 取り込み成功後のみガード設定（例外時の再試行永久ブロック防止）
+      lastImportedRef.current = sid;
       if (res.sessionId === null && res.verdict === 'pass') {
         // 空系列（既に取り込み済みの pending 掃除）はダイアログを出さない
         return;
@@ -90,6 +94,8 @@ export default function SessionListScreen() {
       }
     } catch (e) {
       // 例外を握らない（2026-11-03 実機デバッグ: 無音失敗で起動時取り込みが止まっていた）
+      // MLR GLM#2: 失敗時はガードをクリアして次回 AppState 復帰時に再試行可能にする
+      lastImportedRef.current = '';
       setDialog({
         title: '取り込みに失敗しました',
         message: e instanceof Error ? e.message : String(e),
@@ -143,7 +149,17 @@ export default function SessionListScreen() {
       } else {
         nativeStopRecording();
         setRecording(false);
-        await waitForServiceStop();
+        const stopped = await waitForServiceStop();
+        if (!stopped) {
+          // MLR 2026-11-03 GLM#5: タイムアウト時は recording 中系列の誤取り込みを避ける
+          //（AppState 復帰時の finished 検知に取り込みを委ねる）
+          setDialog({
+            title: '計測の停止を確認できませんでした',
+            message: '少し待ってから画面を開き直してください。取り込みは自動で行われます。',
+            tone: 'warn',
+          });
+          return;
+        }
         const res = await importSensorSession(createNativeSensorSource());
         await refreshSessions();
         if (res.verdict === 'fail') {
