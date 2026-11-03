@@ -83,6 +83,13 @@ export default function SessionListScreen() {
       } else {
         setDialog({ title: '昼寝を取り込みました', message: '一覧に表示されています', tone: 'ok' });
       }
+    } catch (e) {
+      // 例外を握らない（2026-11-03 実機デバッグ: 無音失敗で起動時取り込みが止まっていた）
+      setDialog({
+        title: '取り込みに失敗しました',
+        message: e instanceof Error ? e.message : String(e),
+        tone: 'fail',
+      });
     } finally {
       setBusy(false);
     }
