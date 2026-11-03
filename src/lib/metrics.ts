@@ -13,5 +13,8 @@ export function formatSleepDuration(minutes: number): string {
 /** 比率（0-1）→ `%` 表記（0.29 → "29%"）・欠損は "--"（0は実測0として表示） */
 export function formatRatioPercent(ratio: number | undefined): string {
   if (ratio === undefined) return "--";
-  return `${Math.round(ratio * 100)}%`;
+  // 極短セッションで validRatio が 1 超（105% 等）になる実測があるため表示は 0-100% にクリップ
+  //（データ側の値は変更しない・failCheck/sensorImport の計算は既存のまま）
+  const clipped = Math.min(1, Math.max(0, ratio));
+  return `${Math.round(clipped * 100)}%`;
 }

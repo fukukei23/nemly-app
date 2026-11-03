@@ -34,4 +34,12 @@ describe("formatRatioPercent", () => {
   it("2/7 → 29%（実データは n/N の割合・28.57% は四捨五入で 29）", () => {
     expect(formatRatioPercent(2 / 7)).toBe("29%");
   });
+
+  it("1.05 → 100%（極短セッションの実測 105% を 0-100% にクリップ・2026-11-03 実機発見）", () => {
+    expect(formatRatioPercent(1.05)).toBe("100%");
+  });
+
+  it("-0.1 → 0%（負値もクリップ）", () => {
+    expect(formatRatioPercent(-0.1)).toBe("0%");
+  });
 });
