@@ -34,7 +34,6 @@ class NemlySensorService : Service(), SensorEventListener {
   private val lpf = DoubleArray(3)
   private var lpfInit = false
   private val events = mutableListOf<RawEvent>()
-  private var retryCount = 0
   private var wakeLock: PowerManager.WakeLock? = null
   private val timerHandler = Handler(Looper.getMainLooper())
   private var autoStopRunnable: Runnable? = null
@@ -47,6 +46,10 @@ class NemlySensorService : Service(), SensorEventListener {
     const val ACTION_START_WITH_TIMER = "expo.nemlysensor.ACTION_START_WITH_TIMER"
     const val EXTRA_DURATION_MINUTES = "duration_minutes"
     const val EXTRA_STOP_REASON = "stop_reason"
+    // MLR r2 GLM#1: インスタンスフィールドだと START_STICKY 再生成で上限が無効になるため静的にする
+    //（プロセス死亡時はリセット=新規計測扱いが妥当・プロセス生存中の再生成では上限を維持）
+    var retryCount = 0
+      private set
     var isRunning = false
       private set
     var lastStatus = "idle"

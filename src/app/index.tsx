@@ -64,6 +64,9 @@ export default function SessionListScreen() {
    * finished 検知時は recording 表示も解除する（ネイティブは停止済みのため）。
    */
   const syncFromNativeStatus = async (rawStatus: string) => {
+    // MLR r2 MiniMax#6: 同時 callback で取り込みが並走するのを防ぐ（busy 中の復帰イベントはスキップ・
+    // ガードクリア後に次のイベントで再試行される）
+    if (busy) return;
     // MLR 2026-11-03 GLM#1: 呼び出し側が生の getStatus() JSON を渡すケースがあるため
     // ここで必ず正規化する（recording 検知が JSON 形式だと常に失敗する実バグ）
     const status = parseNativeStatus(rawStatus);
@@ -135,7 +138,12 @@ export default function SessionListScreen() {
   /** ショートカット開始（minutes指定=タイマー自動停止・省略=夜寝） */
   const handleShortcutStart = (minutes?: number) => {
     if (busy || recording) return;
-    nativeStartRecording(minutes);
+    // MLR r2 GLM#3: ネイティブ起動失敗（error:no_context 等）時にUIだけ計測中表示になるのを防ぐ
+    const result = nativeStartRecording(minutes);
+    if (result.startsWith('error:')) {
+      setDialog({ title: '計測を開始できませんでした', message: result, tone: 'fail' });
+      return;
+    }
     setRecording(true);
   };
 
@@ -144,7 +152,11 @@ export default function SessionListScreen() {
     setBusy(true);
     try {
       if (!recording) {
-        nativeStartRecording();
+        const result = nativeStartRecording();
+        if (result.startsWith('error:')) {
+          setDialog({ title: '計測を開始できませんでした', message: result, tone: 'fail' });
+          return;
+        }
         setRecording(true);
       } else {
         nativeStopRecording();
