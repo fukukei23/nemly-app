@@ -12,8 +12,8 @@ type NativeModule = {
   getStatus(): string;
   getLastSessionId(): string;
   getPendingSessionId(): string;
-  startImportLease(): string;
-  endImportLease(): string;
+  acquireLease(): number;
+  releaseLease(token: number): boolean;
   isImporting(): boolean;
 };
 
@@ -71,12 +71,12 @@ export function nativeGetLastSessionId(): string {
   return loadNative().getLastSessionId();
 }
 
-export function nativeStartImportLease(): string {
-  return loadNative().startImportLease();
+export function nativeAcquireLease(): number {
+  return loadNative().acquireLease();
 }
 
-export function nativeEndImportLease(): string {
-  return loadNative().endImportLease();
+export function nativeReleaseLease(token: number): boolean {
+  return loadNative().releaseLease(token);
 }
 
 export function nativeIsImporting(): boolean {

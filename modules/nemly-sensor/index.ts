@@ -14,9 +14,9 @@ export interface NemlySensorModuleType {
   getLastSessionId(): string;
   /** 未取り込み（status='finished'）の最新セッションID・なければ空文字（2026-11-03） */
   getPendingSessionId(): string;
-  /** import 排他 lease（設計書 §4・30秒自動期限切れ・fire-and-forget 死亡時の flag 残留を防ぐ） */
-  startImportLease(): string;
-  endImportLease(): string;
+  /** import 排他 lease（設計書 §4+MLR指摘・token 形式・30秒自動期限切れ・不一致解放は無視） */
+  acquireLease(): number;
+  releaseLease(token: number): boolean;
   isImporting(): boolean;
 }
 

@@ -1,6 +1,7 @@
 package expo.nemlysensor
 
 import android.content.Intent
+import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -10,12 +11,36 @@ import expo.modules.kotlin.modules.ModuleDefinition
  */
 class NemlySensorModule : Module() {
   companion object {
+    private const val TAG = "NemlySensorModule"
     private const val IMPORT_LEASE_MS = 30_000L
     @Volatile
     private var importLeaseUntilMs: Long = 0L
+    @Volatile
+    private var leaseTokenSeq: Long = 0L
 
     /** 設計書 §4: 排他判定の正（JS state は表示制御のみ）。lease 形式で fire-and-forget 死亡時も30秒で自動解放 */
     fun isImporting(): Boolean = System.currentTimeMillis() < importLeaseUntilMs
+
+    /**
+     * MLR指摘（GLM#5・MiniMax#4）: lease を token 形式に（後勝ち上書きや他経路の
+     * endImportLease が他方の実行中 lease を誤解放するのを防ぐ）。token 不一致の解放は無視する。
+     */
+    fun acquireLease(): Long {
+      val token = ++leaseTokenSeq
+      importLeaseUntilMs = System.currentTimeMillis() + IMPORT_LEASE_MS
+      Log.i(TAG, "import lease acquired: token=$token until=$importLeaseUntilMs")
+      return token
+    }
+
+    fun releaseLease(token: Long): Boolean {
+      if (token != leaseTokenSeq) {
+        Log.i(TAG, "import lease release ignored (token mismatch): got=$token current=$leaseTokenSeq")
+        return false
+      }
+      importLeaseUntilMs = 0L
+      Log.i(TAG, "import lease released: token=$token")
+      return true
+    }
   }
 
   override fun definition() = ModuleDefinition {
@@ -78,15 +103,9 @@ class NemlySensorModule : Module() {
       SensorDbHelper.get(appContext.reactContext!!).getPendingSessionId() ?: ""
     }
 
-    // 設計書 §4: import 排他 lease（JS から import 開始/終了時に呼ぶ・30秒自動期限切れ）
-    Function("startImportLease") {
-      importLeaseUntilMs = System.currentTimeMillis() + IMPORT_LEASE_MS
-      "ok"
-    }
-    Function("endImportLease") {
-      importLeaseUntilMs = 0L
-      "ok"
-    }
+    // 設計書 §4+MLR指摘: import 排他 lease（token 形式・30秒自動期限切れ・不一致解放は無視）
+    Function("acquireLease") { acquireLease() }
+    Function("releaseLease") { token: Double -> releaseLease(token.toLong()) }
     Function("isImporting") { isImporting() }
   }
 

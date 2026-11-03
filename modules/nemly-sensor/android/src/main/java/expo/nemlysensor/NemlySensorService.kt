@@ -204,14 +204,19 @@ class NemlySensorService : Service(), SensorEventListener {
         }
         db.finishSession(sessionId, System.currentTimeMillis(), reason)
       }
+      // MLR指摘（MiniMax#10）: DB 書込が成功したときだけ finished にする（失敗時も finished だと
+      // 空系列の import が走り・回収も status='finished' を待つため取り込み不能が黙る）
+      lastStatus = "finished:$sessionId"
+      Log.i(TAG, "recording finished: $sessionId reason=$reason")
+    } catch (e: Exception) {
+      lastStatus = "failed:$sessionId"
+      Log.e(TAG, "finishSession failed: $sessionId reason=$reason", e)
     } finally {
-      // 設計書 §3: 途中で例外が起きても後片付け（unregister/release/status更新/stopSelf）を必ず実行
+      // 設計書 §3: 途中で例外が起きても後片付け（unregister/release/stopSelf）を必ず実行
       sensorManager.unregisterListener(this)
       wakeLock?.let { if (it.isHeld) it.release() }
       wakeLock = null
       isRunning = false
-      lastStatus = "finished:$sessionId"
-      Log.i(TAG, "recording finished: $sessionId reason=$reason")
       stopForeground(STOP_FOREGROUND_REMOVE)
       stopSelf()
     }
@@ -222,7 +227,8 @@ class NemlySensorService : Service(), SensorEventListener {
     // START_STICKY が再配信しない kill を retry 上限で防御（spec §8・crash-loop 防御）
     if (isRunning) {
       retryCount++
-      val db = if (isRunning) SensorDbHelper.get(this) else null
+      // MLR指摘（GLM#4）: 外側の if (isRunning) と同一条件の冗長判定を簡約
+      val db = SensorDbHelper.get(this)
       if (retryCount > MAX_RETRIES) {
         lastStatus = "failed_retry_exhausted:$sessionId"
         isRunning = false
