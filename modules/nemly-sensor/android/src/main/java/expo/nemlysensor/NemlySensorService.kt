@@ -17,6 +17,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * センサー計測の ForegroundService（spec §3・§6・health型）
@@ -28,7 +29,7 @@ import android.util.Log
  */
 class NemlySensorService : Service(), SensorEventListener {
   private lateinit var sensorManager: SensorManager
-  private var dbHelper: SensorDbHelper? = null
+  private val finishing = AtomicBoolean(false)
   private var sessionId: String = ""
   private var windowStartEpochMs: Long = 0
   private val lpf = DoubleArray(3)
@@ -78,12 +79,13 @@ class NemlySensorService : Service(), SensorEventListener {
       return START_NOT_STICKY
     }
 
-    dbHelper = SensorDbHelper.get(this)
+    // 設計書 §3: 前回停止で true のまま残った CAS を解除しないと2回目の計測が停止できなくなる
+    finishing.set(false)
     sessionId = "s-" + System.currentTimeMillis()
     lastSessionId = sessionId
     windowStartEpochMs = System.currentTimeMillis()
     lpfInit = false
-    dbHelper!!.startSession(sessionId, windowStartEpochMs)
+    SensorDbHelper.get(this).startSession(sessionId, windowStartEpochMs)
 
     startForegroundCompat("Nemly 計測中")
     // CPU suspend 防止（2026-10-29 昼寝実測: 画面OFFでセンサー配信が停止し欠損窓383/901）
@@ -151,7 +153,7 @@ class NemlySensorService : Service(), SensorEventListener {
     // spec §5: elapsedRealtimeNanos 基準 → 現在オフセット方式で epoch へ変換
     val offsetMs = System.currentTimeMillis() - SystemClock.elapsedRealtimeNanos() / 1_000_000
     val epochMs = offsetMs + event.timestamp / 1_000_000
-    val db = dbHelper ?: return
+    val db = SensorDbHelper.get(this)
     synchronized(events) {
       events.add(
         RawEvent(
@@ -185,29 +187,34 @@ class NemlySensorService : Service(), SensorEventListener {
   override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
   private fun finishSession(reason: String) {
-    val db = dbHelper ?: return
-    synchronized(events) {
-      if (events.isNotEmpty()) {
-        val win = WindowAggregator.computeWindows(
-          events.toList(),
-          windowStartEpochMs,
-          windowStartEpochMs + WindowAggregator.STEP_MS - 1
-        )
-        for (w in win) {
-          db.insertSample(sessionId, w.tsMs, w.amplitude, w.quality, w.eventCount)
+    if (!finishing.compareAndSet(false, true)) return
+    try {
+      val db = SensorDbHelper.get(this)
+      synchronized(events) {
+        if (events.isNotEmpty()) {
+          val win = WindowAggregator.computeWindows(
+            events.toList(),
+            windowStartEpochMs,
+            windowStartEpochMs + WindowAggregator.STEP_MS - 1
+          )
+          for (w in win) {
+            db.insertSample(sessionId, w.tsMs, w.amplitude, w.quality, w.eventCount)
+          }
+          events.clear()
         }
-        events.clear()
+        db.finishSession(sessionId, System.currentTimeMillis(), reason)
       }
-      db.finishSession(sessionId, System.currentTimeMillis(), reason)
+    } finally {
+      // 設計書 §3: 途中で例外が起きても後片付け（unregister/release/status更新/stopSelf）を必ず実行
+      sensorManager.unregisterListener(this)
+      wakeLock?.let { if (it.isHeld) it.release() }
+      wakeLock = null
+      isRunning = false
+      lastStatus = "finished:$sessionId"
+      Log.i(TAG, "recording finished: $sessionId reason=$reason")
+      stopForeground(STOP_FOREGROUND_REMOVE)
+      stopSelf()
     }
-    sensorManager.unregisterListener(this)
-    wakeLock?.let { if (it.isHeld) it.release() }
-    wakeLock = null
-    isRunning = false
-    lastStatus = "finished:$sessionId"
-    Log.i(TAG, "recording finished: $sessionId reason=$reason")
-    stopForeground(STOP_FOREGROUND_REMOVE)
-    stopSelf()
   }
 
   override fun onDestroy() {
@@ -215,7 +222,7 @@ class NemlySensorService : Service(), SensorEventListener {
     // START_STICKY が再配信しない kill を retry 上限で防御（spec §8・crash-loop 防御）
     if (isRunning) {
       retryCount++
-      val db = dbHelper
+      val db = if (isRunning) SensorDbHelper.get(this) else null
       if (retryCount > MAX_RETRIES) {
         lastStatus = "failed_retry_exhausted:$sessionId"
         isRunning = false
