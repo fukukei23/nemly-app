@@ -121,13 +121,22 @@ export default function SessionListScreen() {
             />
           )}
         />
-        <Pressable
-          style={styles.importButton}
-          onPress={() => router.push('/import')}
-          testID="import-button"
-        >
-          <Text style={styles.importButtonText}>CSVインポート</Text>
-        </Pressable>
+        <View style={styles.bottomButtons}>
+          <Pressable
+            style={styles.importButton}
+            onPress={() => router.push('/import')}
+            testID="import-button"
+          >
+            <Text style={styles.importButtonText}>CSVインポート</Text>
+          </Pressable>
+          <Pressable
+            style={styles.importButton}
+            onPress={() => router.push('/stats')}
+            testID="stats-button"
+          >
+            <Text style={styles.importButtonText}>統計</Text>
+          </Pressable>
+        </View>
         <ResultDialog
           visible={dialog !== null}
           title={dialog?.title ?? ''}
@@ -203,7 +212,12 @@ const styles = StyleSheet.create({
     color: theme.colors.textSub,
     marginTop: theme.spacing.sm,
   },
+  bottomButtons: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+  },
   importButton: {
+    flex: 1,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.card,
     padding: theme.spacing.card,
