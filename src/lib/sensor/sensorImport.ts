@@ -28,6 +28,13 @@ export async function importSensorSession(
 ): Promise<SensorImportResult> {
   const { samples, meta } = await source.pullSeries();
 
+  // 空系列=既に取り込み済み（samples purge 済みで finished 行だけ残存するケース・2026-11-03）。
+  // pending 掃除だけして沈黙終了（ダイアログを出さない・sessionId=null 判定で呼び出し側が区別する）
+  if (samples.length === 0) {
+    await source.confirmImported(meta.sessionId);
+    return { verdict: "pass", reasons: ["empty"], sessionId: null };
+  }
+
   const expectedWindows = Math.max(
     0,
     Math.round((meta.endedAtMs - meta.startedAtMs) / 10_000)

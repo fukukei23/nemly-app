@@ -77,6 +77,10 @@ export default function SessionListScreen() {
     try {
       const res = await importSensorSession(createNativeSensorSource());
       await refreshSessions();
+      if (res.sessionId === null && res.verdict === 'pass') {
+        // 空系列（既に取り込み済みの pending 掃除）はダイアログを出さない
+        return;
+      }
       if (res.verdict === 'fail') {
         setDialog({ title: '計測の判定: fail', message: res.reasons.join('\n'), tone: 'fail' });
       } else if (res.verdict === 'degraded_pass') {

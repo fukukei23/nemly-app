@@ -64,4 +64,31 @@ describe("importSensorSession", () => {
     expect(res.sessionId).toBeGreaterThan(0);
     expect(res.reasons.some((s) => s.includes("short_gap"))).toBe(true);
   });
+
+  it("空系列 → 沈黙掃除（confirmImported 呼び・sessionId=null・2026-11-03 起動時 pending 掃除用）", async () => {
+    const confirmed: string[] = [];
+    const source: SensorSeriesSource = {
+      async pullSeries() {
+        return {
+          samples: [],
+          meta: {
+            sessionId: "s-empty",
+            startedAtMs: START,
+            endedAtMs: START + 600_000,
+            endReason: "auto_timer",
+            status: "finished" as const,
+          },
+        };
+      },
+      async confirmImported() {
+        confirmed.push("s-empty");
+      },
+    };
+    const res = await importSensorSession(source);
+    expect(res.verdict).toBe("pass");
+    expect(res.sessionId).toBeNull();
+    expect(res.reasons).toEqual(["empty"]);
+    expect(confirmed).toEqual(["s-empty"]);
+    expect(await listSessions()).toHaveLength(0);
+  });
 });
