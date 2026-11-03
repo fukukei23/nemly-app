@@ -67,6 +67,10 @@ export function nativeGetStatus(): string {
   return loadNative().getStatus();
 }
 
+export function nativeGetLastSessionId(): string {
+  return loadNative().getLastSessionId();
+}
+
 export function nativeStartImportLease(): string {
   return loadNative().startImportLease();
 }

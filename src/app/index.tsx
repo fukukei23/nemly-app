@@ -9,11 +9,16 @@ import { importSensorSession } from '@/lib/sensor/sensorImport';
 import { isFinishedStatus, parseNativeStatus } from '@/lib/sensor/autoImport';
 import {
   createNativeSensorSource,
+  nativeGetLastSessionId,
   nativeGetPendingSessionId,
   nativeGetStatus,
+  nativeStartImportLease,
   nativeStartRecording,
   nativeStopRecording,
+  nativeEndImportLease,
+  nativeIsImporting,
 } from '@/lib/sensor/nativeSource';
+import { waitForServiceStop } from '@/lib/sensor/waitForStop';
 import { SessionCard } from '@/components/ui/SessionCard';
 import { ResultDialog, type ResultTone } from '@/components/ui/ResultDialog';
 import { theme } from '@/constants/theme';
@@ -27,19 +32,18 @@ type ResultDialogState = {
   tone: ResultTone;
 } | null;
 
-/** FGS の終了書込完了を待つ（finished: 接頭辞 or 15秒タイムアウト） */
-async function waitForServiceStop(): Promise<boolean> {
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    if (isFinishedStatus(nativeGetStatus())) return true;
-  }
-  return false;
-}
-
 function formatToday(): string {
   const d = new Date();
   const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${weekdays[d.getDay()]}`;
+}
+
+/** 回収1件10秒タイムアウト（設計書 §4） */
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return await Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`timeout after ${ms}ms`)), ms)),
+  ]);
 }
 
 export default function SessionListScreen() {
@@ -47,6 +51,8 @@ export default function SessionListScreen() {
   const [loaded, setLoaded] = useState(false);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** 設計書 §4: idle=処理なし / stopping=停止後の取り込み / recovering=起動時・復帰時の回収 */
+  const [importPhase, setImportPhase] = useState<'idle' | 'stopping' | 'recovering'>('idle');
   const [dialog, setDialog] = useState<ResultDialogState>(null);
   /** 自動取り込み済みのネイティブセッションID（AppState復帰時の二重取り込み防止） */
   const lastImportedRef = useRef('');
@@ -66,7 +72,7 @@ export default function SessionListScreen() {
   const syncFromNativeStatus = async (rawStatus: string) => {
     // MLR r2 MiniMax#6: 同時 callback で取り込みが並走するのを防ぐ（busy 中の復帰イベントはスキップ・
     // ガードクリア後に次のイベントで再試行される）
-    if (busy) return;
+    if (busy || importPhase !== 'idle') return;
     // MLR 2026-11-03 GLM#1: 呼び出し側が生の getStatus() JSON を渡すケースがあるため
     // ここで必ず正規化する（recording 検知が JSON 形式だと常に失敗する実バグ）
     const status = parseNativeStatus(rawStatus);
@@ -78,34 +84,40 @@ export default function SessionListScreen() {
     if (!isFinishedStatus(status)) return;
     const sid = status.replace('finished:', '');
     if (sid === lastImportedRef.current) return;
-    setBusy(true);
+    setImportPhase('recovering');
     try {
-      const res = await importSensorSession(createNativeSensorSource());
-      await refreshSessions();
-      // MLR 2026-11-03 GLM#2: 取り込み成功後のみガード設定（例外時の再試行永久ブロック防止）
-      lastImportedRef.current = sid;
-      if (res.sessionId === null && res.verdict === 'pass') {
-        // 空系列（既に取り込み済みの pending 掃除）はダイアログを出さない
-        return;
+      nativeStartImportLease();
+      try {
+        const res = await withTimeout(importSensorSession(createNativeSensorSource()), 10_000);
+        await refreshSessions();
+        // MLR 2026-11-03 GLM#2: 取り込み成功後のみガード設定（例外時の再試行永久ブロック防止）
+        lastImportedRef.current = sid;
+        if (res.sessionId === null && res.verdict === 'pass') {
+          // 空系列（既に取り込み済みの pending 掃除）はダイアログを出さない
+          return;
+        }
+        if (res.verdict === 'fail') {
+          setDialog({ title: '計測の判定: fail', message: res.reasons.join('\n'), tone: 'fail' });
+        } else if (res.verdict === 'degraded_pass') {
+          setDialog({ title: '昼寝を取り込みました（条件付き許容）', message: res.reasons.join('\n'), tone: 'warn' });
+        } else {
+          setDialog({ title: '昼寝を取り込みました', message: '一覧に表示されています', tone: 'ok' });
+        }
+      } catch (e) {
+        // 例外を握らない（2026-11-03 実機デバッグ: 無音失敗で起動時取り込みが止まっていた）
+        // MLR GLM#2: 失敗時はガードをクリアして次回 AppState 復帰時に再試行可能にする
+        // 設計書 §4: 失敗ダイアログは「次回起動時に自動回収」を案内する
+        lastImportedRef.current = '';
+        setDialog({
+          title: '取り込みに失敗しました',
+          message: `${e instanceof Error ? e.message : String(e)}\n次回アプリ起動時に自動回収します。`,
+          tone: 'fail',
+        });
+      } finally {
+        nativeEndImportLease();
       }
-      if (res.verdict === 'fail') {
-        setDialog({ title: '計測の判定: fail', message: res.reasons.join('\n'), tone: 'fail' });
-      } else if (res.verdict === 'degraded_pass') {
-        setDialog({ title: '昼寝を取り込みました（条件付き許容）', message: res.reasons.join('\n'), tone: 'warn' });
-      } else {
-        setDialog({ title: '昼寝を取り込みました', message: '一覧に表示されています', tone: 'ok' });
-      }
-    } catch (e) {
-      // 例外を握らない（2026-11-03 実機デバッグ: 無音失敗で起動時取り込みが止まっていた）
-      // MLR GLM#2: 失敗時はガードをクリアして次回 AppState 復帰時に再試行可能にする
-      lastImportedRef.current = '';
-      setDialog({
-        title: '取り込みに失敗しました',
-        message: e instanceof Error ? e.message : String(e),
-        tone: 'fail',
-      });
     } finally {
-      setBusy(false);
+      setImportPhase('idle');
     }
   };
 
@@ -140,6 +152,15 @@ export default function SessionListScreen() {
     if (busy || recording) return;
     // MLR r2 GLM#3: ネイティブ起動失敗（error:no_context 等）時にUIだけ計測中表示になるのを防ぐ
     const result = nativeStartRecording(minutes);
+    if (result === 'error:importing') {
+      // 設計書 §4: importing 中の開始は native lease ガードが拒否する
+      setDialog({
+        title: '取り込み中です',
+        message: '前回の計測を取り込み中のため開始できません。終わるまでお待ちください。',
+        tone: 'warn',
+      });
+      return;
+    }
     if (result.startsWith('error:')) {
       setDialog({ title: '計測を開始できませんでした', message: result, tone: 'fail' });
       return;
@@ -147,37 +168,26 @@ export default function SessionListScreen() {
     setRecording(true);
   };
 
-  const handleToggleRecording = async () => {
-    if (busy) return;
-    setBusy(true);
+  /** 停止後の取り込みを裏で走らせる（設計書 §4・fire-and-forget・UI は即復帰する） */
+  const runStopImport = async (sid: string) => {
+    setImportPhase('stopping');
     try {
-      if (!recording) {
-        const result = nativeStartRecording();
-        if (result.startsWith('error:')) {
-          setDialog({ title: '計測を開始できませんでした', message: result, tone: 'fail' });
-          return;
-        }
-        setRecording(true);
-      } else {
-        nativeStopRecording();
-        setRecording(false);
-        const stopped = await waitForServiceStop();
-        if (!stopped) {
-          // MLR 2026-11-03 GLM#5: タイムアウト時は recording 中系列の誤取り込みを避ける
-          //（AppState 復帰時の finished 検知に取り込みを委ねる）
-          setDialog({
-            title: '計測の停止を確認できませんでした',
-            message: '少し待ってから画面を開き直してください。取り込みは自動で行われます。',
-            tone: 'warn',
-          });
-          return;
-        }
+      const ok = await waitForServiceStop(sid, () => nativeGetStatus());
+      if (!ok) {
+        // MLR GLM#5 対応を維持: タイムアウト時は recording 中系列の誤取り込みを避ける
+        //（AppState 復帰時の finished 検知に取り込みを委ねる）
+        setDialog({
+          title: '計測の停止を確認できませんでした',
+          message: '少し待ってから画面を開き直してください。取り込みは自動で行われます。',
+          tone: 'warn',
+        });
+        return;
+      }
+      nativeStartImportLease();
+      try {
         const res = await importSensorSession(createNativeSensorSource());
         await refreshSessions();
-        // MLR r3 GLM#1: 手動停止経路でもガードを設定（取り込み直後のAppState復帰で
-        // 同一セッションを finished 検知して再試行するのを防ぐ・空系列沈黙掃除になるため実害小だが正しく設定）
-        const stoppedSid = parseNativeStatus(nativeGetStatus()).replace('finished:', '');
-        if (stoppedSid) lastImportedRef.current = stoppedSid;
+        lastImportedRef.current = sid;
         if (res.verdict === 'fail') {
           setDialog({ title: '計測の判定: fail', message: res.reasons.join('\n'), tone: 'fail' });
         } else if (res.verdict === 'degraded_pass') {
@@ -185,7 +195,47 @@ export default function SessionListScreen() {
         } else {
           setDialog({ title: '計測を取り込みました', message: '一覧に表示されています', tone: 'ok' });
         }
+      } catch (e) {
+        // 設計書 §4: 失敗ダイアログは fail と区別して「次回起動時に自動回収」を案内する
+        setDialog({
+          title: '取り込みに失敗しました',
+          message: `${e instanceof Error ? e.message : String(e)}\n次回アプリ起動時に自動回収します。`,
+          tone: 'fail',
+        });
+      } finally {
+        nativeEndImportLease();
       }
+    } finally {
+      setImportPhase('idle');
+    }
+  };
+
+  const handleToggleRecording = async () => {
+    if (recording) {
+      // 設計書 §4: stopRecording は importing 中でも許可（start のみ拒否）
+      const sid = parseNativeStatus(nativeGetStatus()).replace('recording:', '') || nativeGetLastSessionId();
+      nativeStopRecording();
+      setRecording(false);
+      void runStopImport(sid);
+      return;
+    }
+    if (busy || nativeIsImporting()) return;
+    setBusy(true);
+    try {
+      const result = nativeStartRecording();
+      if (result === 'error:importing') {
+        setDialog({
+          title: '取り込み中です',
+          message: '前回の計測を取り込み中のため開始できません。終わるまでお待ちください。',
+          tone: 'warn',
+        });
+        return;
+      }
+      if (result.startsWith('error:')) {
+        setDialog({ title: '計測を開始できませんでした', message: result, tone: 'fail' });
+        return;
+      }
+      setRecording(true);
     } finally {
       setBusy(false);
     }
@@ -196,6 +246,13 @@ export default function SessionListScreen() {
       <View style={styles.container}>
         <Text style={styles.title}>Nemly</Text>
         <Text style={styles.today}>{formatToday()}</Text>
+        {importPhase !== 'idle' && (
+          <View style={styles.importingRow} testID="importing-row">
+            <Text style={styles.importingText}>
+              {importPhase === 'stopping' ? '取り込み中…' : '前回の計測を取り込み中'}
+            </Text>
+          </View>
+        )}
         {loaded && sessions.length === 0 && (
           <Text style={styles.emptyText}>
             記録がありません。{'\n'}「計測を開始」でセンサー計測、{'\n'}「インポート」でCSVデータを取り込めます。
@@ -297,6 +354,19 @@ const styles = StyleSheet.create({
     color: theme.colors.textSub,
     textAlign: 'center',
     marginBottom: theme.spacing.md,
+  },
+  importingRow: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.chip,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+    padding: theme.spacing.sm,
+    marginBottom: theme.spacing.md,
+  },
+  importingText: {
+    ...theme.typography.sub,
+    color: theme.colors.accent,
+    textAlign: 'center',
   },
   recordButton: {
     backgroundColor: theme.colors.surface,
