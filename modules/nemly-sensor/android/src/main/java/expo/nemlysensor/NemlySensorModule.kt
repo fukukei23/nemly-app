@@ -38,7 +38,7 @@ class NemlySensorModule : Module() {
 
     AsyncFunction("pullSeries") { sessionId: String, promise: expo.modules.kotlin.Promise ->
       try {
-        val db = SensorDbHelper(appContext.reactContext!!)
+        val db = SensorDbHelper.get(appContext.reactContext!!)
         val (samplesJson, metaJson) = db.pullSeries(sessionId)
         promise.resolve("{\"samples\":$samplesJson,\"meta\":$metaJson}")
       } catch (e: Exception) {
@@ -47,7 +47,7 @@ class NemlySensorModule : Module() {
     }
 
     Function("confirmImported") { sessionId: String ->
-      SensorDbHelper(appContext.reactContext!!).purgeSession(sessionId)
+      SensorDbHelper.get(appContext.reactContext!!).purgeSession(sessionId)
       "ok"
     }
 
@@ -64,7 +64,7 @@ class NemlySensorModule : Module() {
 
     // 起動時取り込み用（2026-11-03・force-stop後のidle問題で静的ステータスからは検知できないためDB直接問い合わせ）
     Function("getPendingSessionId") {
-      SensorDbHelper(appContext.reactContext!!).getPendingSessionId() ?: ""
+      SensorDbHelper.get(appContext.reactContext!!).getPendingSessionId() ?: ""
     }
   }
 

@@ -78,7 +78,7 @@ class NemlySensorService : Service(), SensorEventListener {
       return START_NOT_STICKY
     }
 
-    dbHelper = SensorDbHelper(this)
+    dbHelper = SensorDbHelper.get(this)
     sessionId = "s-" + System.currentTimeMillis()
     lastSessionId = sessionId
     windowStartEpochMs = System.currentTimeMillis()
