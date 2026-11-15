@@ -82,9 +82,19 @@ class NemlySensorModule : Module() {
       }
     }
 
+    // spec §2 CAS: purge 成功（finished/importing→imported）で true。既に imported 等なら false
     Function("confirmImported") { sessionId: String ->
       SensorDbHelper.get(appContext.reactContext!!).purgeSession(sessionId)
-      "ok"
+    }
+
+    // spec §2 status 遷移（claim・WHERE finished/importing）: kill 復旧の回収起点
+    Function("markImporting") { sessionId: String ->
+      SensorDbHelper.get(appContext.reactContext!!).markImporting(sessionId)
+    }
+
+    // spec §2 status 遷移（verdict=fail・catch 全体）: import_failed=回収対象外
+    Function("markImportFailed") { sessionId: String ->
+      SensorDbHelper.get(appContext.reactContext!!).markImportFailed(sessionId)
     }
 
     Function("getStatus") {

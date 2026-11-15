@@ -40,6 +40,20 @@ export interface SessionRecord {
   validRatio?: number;
   gapCount?: number;
   endReason?: string;
+  /**
+   * ネイティブ側セッションID（v3 列・spec §6 冪等キー）。
+   * UNIQUE index 付き・同一 native_session_id の再 insert は二重登録防止の
+   * 防御層で拒否する（spec §6 重複防止3層）。
+   */
+  nativeSessionId?: string;
+}
+
+/** 同一 native_session_id の再 insert（insert 後 kill の次回回収で冪等に拾う契約） */
+export class DuplicateNativeSessionError extends Error {
+  constructor(sessionId: string) {
+    super(`native_session_id already imported: ${sessionId}`);
+    this.name = "DuplicateNativeSessionError";
+  }
 }
 
 export interface SessionWithStages extends SessionRecord {
@@ -56,6 +70,8 @@ export interface Repository {
   getSessionStages(sessionId: number): Promise<SleepStageRow[]>;
   deleteSession(sessionId: number): Promise<void>;
   countSessions(): Promise<number>;
+  /** native_session_id で既存 sleep_sessions 行を照合する（spec §6 重複防止①事前照合） */
+  getSessionIdByNativeId(nativeSessionId: string): Promise<number | null>;
 }
 
 /**
@@ -67,6 +83,11 @@ class InMemoryRepository implements Repository {
   private nextId = 1;
 
   async insertSession(session: SessionRecord, stages: SleepStageRow[]): Promise<number> {
+    // UNIQUE(native_session_id) 相当（SQLite UNIQUE INDEX と等価契約・spec §6③防御層）
+    if (session.nativeSessionId !== undefined) {
+      const existing = await this.getSessionIdByNativeId(session.nativeSessionId);
+      if (existing !== null) throw new DuplicateNativeSessionError(session.nativeSessionId);
+    }
     const id = this.nextId++;
     this.sessions.push({ ...session, id });
     // 同一 (session_id, ts_ms) の重複を排除（SQLite の UNIQUE INDEX 相当）
@@ -96,6 +117,11 @@ class InMemoryRepository implements Repository {
 
   async countSessions(): Promise<number> {
     return this.sessions.length;
+  }
+
+  async getSessionIdByNativeId(nativeSessionId: string): Promise<number | null> {
+    const found = this.sessions.find((s) => s.nativeSessionId === nativeSessionId);
+    return found?.id ?? null;
   }
 }
 
@@ -138,4 +164,10 @@ export async function deleteSession(sessionId: number): Promise<void> {
 
 export async function countSessions(): Promise<number> {
   return activeRepository.countSessions();
+}
+
+export async function getSessionByNativeId(
+  nativeSessionId: string
+): Promise<number | null> {
+  return activeRepository.getSessionIdByNativeId(nativeSessionId);
 }

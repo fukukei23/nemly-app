@@ -8,7 +8,9 @@ type NativeModule = {
   startRecording(durationMinutes?: number): string;
   stopRecording(): string;
   pullSeries(sessionId: string): Promise<string>;
-  confirmImported(sessionId: string): string;
+  confirmImported(sessionId: string): boolean;
+  markImporting(sessionId: string): boolean;
+  markImportFailed(sessionId: string): boolean;
   getStatus(): string;
   getLastSessionId(): string;
   getPendingSessionId(): string;
@@ -49,7 +51,13 @@ export function createNativeSensorSource(
       return { samples: parsed.samples, meta: parsed.meta };
     },
     async confirmImported(sessionId: string) {
-      native.confirmImported(sessionId);
+      return native.confirmImported(sessionId);
+    },
+    async markImporting(sessionId: string) {
+      return native.markImporting(sessionId);
+    },
+    async markImportFailed(sessionId: string) {
+      return native.markImportFailed(sessionId);
     },
   };
 }

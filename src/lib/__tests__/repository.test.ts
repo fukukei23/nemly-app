@@ -140,6 +140,7 @@ describe("Nemly Repository (InMemory)", () => {
         calls.push("count");
         return 7;
       },
+      getSessionIdByNativeId: async () => null,
     };
     _setRepositoryForTest(spyRepo);
     const id = await insertSession(makeSession(), []);

@@ -10,7 +10,8 @@ const START = 1_700_000_000_000;
 function fakeSource(
   windows: number,
   gapWindows?: number[],
-  confirmed: string[] = []
+  confirmed: string[] = [],
+  failMarked: string[] = []
 ): SensorSeriesSource {
   const r = generateSyntheticSeries({ startMs: START, windows, gapWindows });
   return {
@@ -26,8 +27,16 @@ function fakeSource(
         },
       };
     },
+    async markImporting() {
+      return true;
+    },
     async confirmImported() {
       confirmed.push("s-test-1");
+      return true;
+    },
+    async markImportFailed() {
+      failMarked.push("s-test-1");
+      return true;
     },
   };
 }
@@ -47,15 +56,22 @@ describe("importSensorSession", () => {
     expect(all[0]!.endReason).toBe("user_stop");
   });
 
-  it("fail 系列（20分超欠損）→ 保存せず verdict を返す・ただし confirmImported は呼ぶ（2026-11-03 変更・起動時取り込みの無限 pending 防止）", async () => {
+  it("fail 系列（20分超欠損）→ 保存せず verdict を返す・markImportFailed を呼ぶ（spec §2・status=import_failed で回収対象外へ）", async () => {
     const confirmed: string[] = [];
+    const failMarked: string[] = [];
     const res = await importSensorSession(
-      fakeSource(300, Array.from({ length: 125 }, (_, i) => i + 50), confirmed)
+      fakeSource(
+        300,
+        Array.from({ length: 125 }, (_, i) => i + 50),
+        confirmed,
+        failMarked
+      )
     );
     expect(res.verdict).toBe("fail");
     expect(res.sessionId).toBeNull();
     expect(await listSessions()).toHaveLength(0);
-    expect(confirmed).toEqual(["s-test-1"]);
+    expect(failMarked).toEqual(["s-test-1"]);
+    expect(confirmed).toEqual([]);
   });
 
   it("degraded 系列（30分以内の短欠損）→ 保存する（verdict=degraded_pass）", async () => {
@@ -80,8 +96,15 @@ describe("importSensorSession", () => {
           },
         };
       },
+      async markImporting() {
+        return true;
+      },
       async confirmImported() {
         confirmed.push("s-empty");
+        return true;
+      },
+      async markImportFailed() {
+        return true;
       },
     };
     const res = await importSensorSession(source);

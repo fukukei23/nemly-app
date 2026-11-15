@@ -17,7 +17,12 @@ import {
   _resetSqliteInitForTest,
 } from "../sqliteRepository";
 import { createFakeAdapter } from "../migration/sqliteAdapter";
-import { _setRepositoryForTest, _resetRepositoryForTest, insertSession } from "../repository";
+import {
+  _setRepositoryForTest,
+  _resetRepositoryForTest,
+  insertSession,
+  DuplicateNativeSessionError,
+} from "../repository";
 import type { SessionRecord, SleepStageRow } from "../repository";
 
 jest.mock("expo-sqlite", () => ({
@@ -75,6 +80,10 @@ function makeFakeDb(userVersion = 0): any {
           score: params[7],
           source: params[8],
           created_at: params[9],
+          valid_ratio: params[10],
+          gap_count: params[11],
+          end_reason: params[12],
+          native_session_id: params[13],
         });
         return { lastInsertRowId: id };
       }
@@ -109,6 +118,11 @@ function makeFakeDb(userVersion = 0): any {
       return {};
     },
     async getAllAsync(sql: string, params: any[] = []) {
+      if (sql.includes("WHERE native_session_id = ?")) {
+        return (tables["sleep_sessions"] ?? []).filter(
+          (r: any) => r.native_session_id === params[0]
+        );
+      }
       if (sql.includes("FROM sleep_sessions ORDER BY start_ms DESC")) {
         return [...(tables["sleep_sessions"] ?? [])].sort(
           (a: any, b: any) => b.start_ms - a.start_ms
@@ -144,16 +158,31 @@ function makeFakeDb(userVersion = 0): any {
 }
 
 describe("SQLiteRepository (migration framework 経由)", () => {
-  test("constructor で migrationRunner が走り v1+v2 が適用される（新規 DB）", async () => {
+  test("constructor で migrationRunner が走り v1+v2+v3 が適用される（新規 DB）", async () => {
     const db = makeFakeDb(0);
     const adapter = createFakeAdapter();
     const repo = new SQLiteRepository(db, adapter);
     await repo.countSessions(); // ready 待ちを兼ねる
-    expect(await adapter.getUserVersion(db)).toBe(2);
+    expect(await adapter.getUserVersion(db)).toBe(3);
     const rows = await adapter.getMigrations(db);
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0].version).toBe(1);
     expect(rows[1].version).toBe(2);
+    expect(rows[2].version).toBe(3);
+  });
+
+  test("同一 native_session_id の再 insert は DuplicateNativeSessionError（spec §6①③・UNIQUE 冪等）", async () => {
+    const db = makeFakeDb(0);
+    const repo = new SQLiteRepository(db, createFakeAdapter());
+    const session = makeSession({ nativeSessionId: "s-dup-1" });
+    const id = await repo.insertSession(session, []);
+    expect(id).toBeGreaterThan(0);
+    await expect(repo.insertSession(session, [])).rejects.toThrow(
+      DuplicateNativeSessionError
+    );
+    // 事前照合: 既存行が返る
+    expect(await repo.getSessionIdByNativeId("s-dup-1")).toBe(id);
+    expect(await repo.getSessionIdByNativeId("s-not-exist")).toBeNull();
   });
 
   test("insertSession → listSessions → getSessionStages → deleteSession が一連で動く", async () => {

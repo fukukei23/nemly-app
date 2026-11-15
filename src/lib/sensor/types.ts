@@ -30,7 +30,8 @@ export interface SeriesMeta {
   startedAtMs: number;
   endedAtMs: number;
   endReason: string; // user_stop | system
-  status: "recording" | "finished" | "failed";
+  // spec §2 status 遷移表（recording→finished→importing→imported/import_failed）
+  status: "recording" | "finished" | "importing" | "imported" | "import_failed" | "failed";
 }
 
 /** fail判定の結果（spec §8 rubric・判定は failCheck.ts のみで行う） */

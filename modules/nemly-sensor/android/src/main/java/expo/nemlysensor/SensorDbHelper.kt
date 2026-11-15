@@ -138,16 +138,62 @@ class SensorDbHelper private constructor(context: Context) :
     Pair(sb.toString(), meta)
   }
 
-  /** 取り込み完了後の削除（samples+native_sessions・finished 行が残ると起動時 pending 検知が無限ヒットするため・2026-11-03） */
-  fun purgeSession(sessionId: String) = withLockRetry {
-    writableDatabase.delete("samples", "session_id = ?", arrayOf(sessionId))
-    writableDatabase.delete("native_sessions", "session_id = ?", arrayOf(sessionId))
+  /**
+   * claim（spec §6 回収の claim 排他を兼ねる）: WHERE status IN ('finished','importing')
+   * の UPDATE 行数 1 で成功。他が担当中 or 既に imported/import_failed なら false。
+   * kill で catch を通らず死んだ場合は importing 残留→次回起動の getPendingSessionId
+   * が（WHERE に importing を含める）回収対象として拾う
+   */
+  fun markImporting(sessionId: String): Boolean = withLockRetry {
+    val cv = ContentValues().apply { put("status", "importing") }
+    writableDatabase.update(
+      "native_sessions", cv,
+      "session_id = ? AND status IN ('finished','importing')", arrayOf(sessionId)
+    ) > 0
   }
 
-  /** 未取り込み（status='finished'）の最新セッションID（起動時取り込み用・2026-11-03・force-stop後は静的ステータスがidleに戻るためDBを見る） */
+  /** import 失敗（verdict=fail・import 処理の catch 全体から呼ぶ・回収対象外へ明示遷移） */
+  fun markImportFailed(sessionId: String): Boolean = withLockRetry {
+    val cv = ContentValues().apply { put("status", "import_failed") }
+    writableDatabase.update(
+      "native_sessions", cv,
+      "session_id = ? AND status IN ('importing','finished')", arrayOf(sessionId)
+    ) > 0
+  }
+
+  /**
+   * import 完了（spec §2 CAS）: transaction 内で status='imported' UPDATE
+   *（WHERE status IN ('finished','importing')）→ 成功時のみ samples delete。
+   * native_sessions 行は imported として残存する（confirm 後 kill でも status が
+   * 永続し pending 再検知しない=二重登録防止の一次層）。行の累積は回収対象外の
+   * 軽量行のみで将来 cleanup 論点（samples は消えるので肥大はしない）
+   */
+  fun purgeSession(sessionId: String): Boolean = withLockRetry {
+    val db = writableDatabase
+    db.beginTransaction()
+    try {
+      val cv = ContentValues().apply { put("status", "imported") }
+      val rows = db.update(
+        "native_sessions", cv,
+        "session_id = ? AND status IN ('finished','importing')", arrayOf(sessionId)
+      )
+      if (rows > 0) {
+        db.delete("samples", "session_id = ?", arrayOf(sessionId))
+      }
+      db.setTransactionSuccessful()
+      rows > 0
+    } finally {
+      db.endTransaction()
+    }
+  }
+
+  /**
+   * 未取り込み（status='finished' + importing 残留=kill 復旧対象）の最新セッションID
+   *（起動時取り込み用・2026-11-03・force-stop後は静的ステータスがidleに戻るためDBを見る）
+   */
   fun getPendingSessionId(): String? = withLockRetry {
     readableDatabase.rawQuery(
-      "SELECT session_id FROM native_sessions WHERE status='finished' ORDER BY ended_at_ms DESC LIMIT 1",
+      "SELECT session_id FROM native_sessions WHERE status IN ('finished','importing') ORDER BY ended_at_ms DESC LIMIT 1",
       null
     ).use { c ->
       if (c.moveToFirst()) c.getString(0) else null

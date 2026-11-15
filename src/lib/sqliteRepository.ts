@@ -18,12 +18,12 @@
  */
 
 import type { Repository, SessionRecord, SleepStageRow } from "./repository";
-import { _setRepositoryForTest } from "./repository";
+import { DuplicateNativeSessionError, _setRepositoryForTest } from "./repository";
 import { ALL_MIGRATIONS } from "./migration/migrations";
 import { migrationRunner } from "./migration/migrationRunner";
 import { createExpoSqliteAdapter, type SQLiteAdapter } from "./migration/sqliteAdapter";
 
-const SESSION_COLS = "id, start_ms, end_ms, sample_count, deep_ratio, light_ratio, rem_ratio, awake_ratio, score, source, created_at, valid_ratio, gap_count, end_reason";
+const SESSION_COLS = "id, start_ms, end_ms, sample_count, deep_ratio, light_ratio, rem_ratio, awake_ratio, score, source, created_at, valid_ratio, gap_count, end_reason, native_session_id";
 
 function rowToSession(row: any): SessionRecord {
   return {
@@ -41,6 +41,7 @@ function rowToSession(row: any): SessionRecord {
     validRatio: row.valid_ratio ?? undefined,
     gapCount: row.gap_count ?? undefined,
     endReason: row.end_reason ?? undefined,
+    nativeSessionId: row.native_session_id ?? undefined,
   };
 }
 
@@ -55,12 +56,19 @@ export class SQLiteRepository implements Repository {
 
   async insertSession(session: SessionRecord, stages: SleepStageRow[]): Promise<number> {
     await this.ready;
+    // spec §6①事前照合: 同一 native_session_id の既存行があれば UNIQUE 例外の前に
+    // DuplicateNativeSessionError として正規化する（import 側は catch で
+    // already-imported 判定・INSERT OR IGNORE 不使用＝conflict が成功に化けない契約）
+    if (session.nativeSessionId !== undefined) {
+      const existing = await this.getSessionIdByNativeId(session.nativeSessionId);
+      if (existing !== null) throw new DuplicateNativeSessionError(session.nativeSessionId);
+    }
     // session と stages を同一トランザクションで保存（stages INSERT 失敗で
     // 孤立 session が残る部分保存を防ぐ・migrationRunner と同一契約）。
     // SDK57 契約: tx 内のクエリは txn オブジェクトで実行必須。
     return this.db.withExclusiveTransactionAsync(async (tx: any) => {
       const result = await tx.runAsync(
-        "INSERT INTO sleep_sessions (start_ms, end_ms, sample_count, deep_ratio, light_ratio, rem_ratio, awake_ratio, score, source, created_at, valid_ratio, gap_count, end_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sleep_sessions (start_ms, end_ms, sample_count, deep_ratio, light_ratio, rem_ratio, awake_ratio, score, source, created_at, valid_ratio, gap_count, end_reason, native_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
           session.startMs,
           session.endMs,
@@ -75,6 +83,7 @@ export class SQLiteRepository implements Repository {
           session.validRatio ?? null,
           session.gapCount ?? null,
           session.endReason ?? null,
+          session.nativeSessionId ?? null,
         ]
       );
       const insertedId = result.lastInsertRowId as number;
@@ -126,6 +135,16 @@ export class SQLiteRepository implements Repository {
     );
     const r = result as { n: number } | null;
     return r?.n ?? 0;
+  }
+
+  async getSessionIdByNativeId(nativeSessionId: string): Promise<number | null> {
+    await this.ready;
+    const rows = await this.db.getAllAsync(
+      "SELECT id, native_session_id FROM sleep_sessions WHERE native_session_id = ?",
+      [nativeSessionId]
+    );
+    const first = (rows as any[])[0];
+    return first?.id ?? null;
   }
 }
 

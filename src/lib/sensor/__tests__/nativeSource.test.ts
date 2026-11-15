@@ -26,7 +26,9 @@ function fakeNative(overrides: Partial<NativeModule> = {}): NativeModule {
           status: "finished",
         },
       }),
-    confirmImported: () => "ok",
+    confirmImported: () => true,
+    markImporting: () => true,
+    markImportFailed: () => true,
     getStatus: () => '{"status":"finished:s-1"}',
     getLastSessionId: () => "s-last",
     getPendingSessionId: () => "s-pending",
@@ -83,7 +85,7 @@ test("confirmImported はネイティブの confirmImported を呼ぶ", async ()
   const native = fakeNative({
     confirmImported: (sid: string) => {
       confirmed.push(sid);
-      return "ok";
+      return true;
     },
   });
   const source = createNativeSensorSource(native);

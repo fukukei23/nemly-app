@@ -9,7 +9,7 @@
 
 import { createFakeAdapter, type TestingSQLiteAdapter } from "../sqliteAdapter";
 import { migrationRunner } from "../migrationRunner";
-import { v1, v2, ALL_MIGRATIONS } from "../migrations";
+import { v1, v2, v3, ALL_MIGRATIONS } from "../migrations";
 import type { Migration } from "../migrations";
 import { createHash } from "crypto";
 
@@ -370,10 +370,10 @@ describe("migrationRunner (Day 4)", () => {
 });
 
 describe("v2 migration", () => {
-  test("v1+v2 を適用し user_version=2 になる", async () => {
+  test("v1+v2+v3 を適用し user_version=3 になる", async () => {
     const db = makeFakeDb(0);
     await migrationRunner.run(db, ALL_MIGRATIONS, adapter);
-    expect(await adapter.getUserVersion(db)).toBe(2);
+    expect(await adapter.getUserVersion(db)).toBe(3);
   });
 
   test("v2 適用で amplitude_samples と sleep_sessions のメタ列 DDL が実行される", async () => {
@@ -390,9 +390,11 @@ describe("v2 migration", () => {
     const db = makeFakeDb(0);
     await migrationRunner.run(db, ALL_MIGRATIONS, adapter);
     const rows = await adapter.getMigrations(db);
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[1]).toMatchObject({ version: 2, name: v2.name });
     expect(rows[1].checksum).toBe(await adapter.checksumOfAsync(v2.up));
+    expect(rows[2]).toMatchObject({ version: 3, name: v3.name });
+    expect(rows[2].checksum).toBe(await adapter.checksumOfAsync(v3.up));
   });
 
   test("v1 の checksum は v2 追加で不変（既存DB互換・差分レビュー確認）", async () => {

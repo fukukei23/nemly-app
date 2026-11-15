@@ -94,4 +94,22 @@ export const v2: Migration = {
   up: V2_DDL,
 };
 
-export const ALL_MIGRATIONS: Migration[] = [v1, v2];
+/**
+ * v3: kill 復旧冪等キー（spec §6 重複防止3層）
+ * - sleep_sessions.native_session_id: ネイティブ側セッションID（s-xxx）の永続記録
+ * - UNIQUE index: insert 後 kill の次回回収で二重 insert を schema レベルで拒否
+ *   （import 処理は native_session_id 事前照合→DuplicateNativeSessionError catch で
+ *   already-imported 判定する・INSERT OR IGNORE 不使用）
+ */
+export const V3_DDL = `
+ALTER TABLE sleep_sessions ADD COLUMN native_session_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_native ON sleep_sessions(native_session_id);
+`.trim();
+
+export const v3: Migration = {
+  version: 3,
+  name: "v3: sleep_sessions.native_session_id + UNIQUE index (kill recovery idempotency)",
+  up: V3_DDL,
+};
+
+export const ALL_MIGRATIONS: Migration[] = [v1, v2, v3];
