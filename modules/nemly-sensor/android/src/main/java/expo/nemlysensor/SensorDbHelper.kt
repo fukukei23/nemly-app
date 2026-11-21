@@ -12,8 +12,8 @@ import android.util.Log
  * 契約: このファイルに書き込むのは本ヘルパーのみ（expo-sqlite は触らない）
  * WAL + プロセス内単一connection（設計書 §1 singleton）・migration 不要（新規ファイル・v1 固定）
  */
-class SensorDbHelper private constructor(context: Context) :
-  SQLiteOpenHelper(context.applicationContext, "amplitude.db", null, 1) {
+class SensorDbHelper private constructor(context: Context, dbName: String = "amplitude.db") :
+  SQLiteOpenHelper(context.applicationContext, dbName, null, 1) {
 
   companion object {
     private const val TAG = "SensorDbHelper"
@@ -26,6 +26,10 @@ class SensorDbHelper private constructor(context: Context) :
       instance ?: synchronized(this) {
         instance ?: SensorDbHelper(context.applicationContext).also { instance = it }
       }
+
+    /** Instrumented テスト専用ファクトリ: singleton を通らず実DB（amplitude.db）を触らない */
+    fun createForTest(context: Context, dbName: String): SensorDbHelper =
+      SensorDbHelper(context, dbName)
   }
 
   override fun onCreate(db: SQLiteDatabase) {
