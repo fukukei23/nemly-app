@@ -112,7 +112,7 @@ export interface FailVerdict {
 
 **トランザクション契約（MLR mm#2 + glm#5 採用）**: amplitudes と verdicts は単一 SQLite トランザクションで commit し、**両方成功か両方失敗かの2値化**とする（「生値のみ・統計なし」の部分書込状態を構造的に排除・InMemory 実装でも partial commit 不在をテストする〔§8〕）。**トランザクション内で外部 I/O（native bridge 呼出等）は行わない**。後段の markImportFailed / insertSession / confirmImported は別トランザクション（既存経路の変更なし）。
 
-**性能契約（MLR glm#3 + gem#1/#6 採用）**: saveImportArtifacts は窓数分（実測 3,272 行/9時間晩）のバッチ INSERT を単一トランザクションで実行する。**書込時間は §9 の完了条件で実機実測する**（fail条件として書込実測 1 秒超で再設計 — **1 秒の根拠〔MLR r2 glm#6 採用〕**: 既存停止処理の UI 復帰実測 2.13〜2.82 秒〔L228 完遂時実測〕に対し、書込追加による遅延をその半分程度に抑える目安）。保持期間/purge ポリシー（DB 肥大化対策）は非目標（L175 と一体で将来判断・容量試算は約 46MB/年=3,272 行×40B 概算×365 日〔self-inspect V7 実算〕・**fail 連続シナリオ追試算〔MLR r2 glm#3/gem#1 採用〕**: 30 日連続 fail でも fail 生値分は約 4MB で問題にならない規模）。**実機 kill は意図的注入をせず、自然発生時（停止忘れ・電池切れ等）の再回収を観測する**（計測中の kill は測定データ自体を破壊するため・MLR r2 mm#6 部分採用）。
+**性能契約（MLR glm#3 + gem#1/#6 採用）**: saveImportArtifacts は窓数分（実測 3,272 行/9時間晩）のバッチ INSERT を単一トランザクションで実行する。**書込時間は §9 の完了条件で実機実測する**（fail条件として書込実測 1 秒超で再設計 — **1 秒の根拠〔MLR r2 glm#6 採用〕**: 既存停止処理の UI 復帰実測 2.13〜2.82 秒〔L228 完遂時実測〕に対し、書込追加による遅延をその半分程度に抑える目安）。保持期間/purge ポリシー（DB 肥大化対策）は非目標（L175 と一体で将来判断・**UI DB 側の amplitudes/verdicts パージも L175 の管轄に含める〔MLR r3 glm#6 採用で明記〕**。容量試算は約 46MB/年=3,272 行×40B 概算×365 日〔self-inspect V7 実算・SQLite のページ/WAL オーバーヘッドを含まない概算〕・**fail 連続シナリオ追試算〔MLR r2 glm#3/gem#1 採用〕**: 30 日連続 fail でも fail 生値分は約 4MB で問題にならない規模）。**実機 kill は意図的注入をせず、自然発生時（停止忘れ・電池切れ等）の再回収を観測する**（計測中の kill は測定データ自体を破壊するため・MLR r2 mm#6 部分採用）。
 
 **順序の根拠（kill 耐性分析）** — 生値+統計を**最初に**書くのが核心:
 
@@ -158,6 +158,8 @@ interface Repository {
   saveImportArtifacts(
     verdict: VerdictRecord,
     samples: { tsMs: number; amplitude: number; quality: number }[]
+    // quality は既存契約を継承（windowAggregator.ts:75・0=低品質窓〔10秒窓イベント数<160〕/1=通常窓・
+    // MLR r3 glm#1 採用で契約を明記・分布抽出時は quality 解釈がズレないことをこの定義で担保）
   ): Promise<void>;
 }
 ```
@@ -190,21 +192,23 @@ interface Repository {
    - ③ `sleep_window_stationary_rate` に睡眠帯限定値が入っている（夜寝時）
    - ④ **saveImportArtifacts の書込時間実測**（logcat または import 前後タイムスタンプ・**1 秒超なら再設計=fail条件**・MLR glm#3 対応）
    - ⑤ **Kotlin 側 purgeSession 呼び出し位置の確認**（confirmImported 経由のみで purge が走ることをコード追跡で確認・pullSeries/markImporting 段階で purge しない・MLR gem#5 対応）
+   - ⑥ **kill 後再回収の冪等性を最低 1 回実測**（計測外の短時間セッションで意図的 kill 注入〔adb shell am kill 等〕または自然発生時・MLR r3 glm#3 採用・実機 SQLite の WAL/ジャーナル挙動は単体テストで再現できないため最低 1 回の実測を追加）
 
 ### L247 達成条件（3 有効夜の分布取得）
 
-5. **有効夜の定義（MLR mm#1/#7 採用）**: `sensor_verdicts` 行のうち `stationary_gate_active=1` かつ `sleep_window_stationary_rate IS NOT NULL` かつ睡眠帯窓数 ≥ **360 窓（1 時間分・暫定値・恒久化時に再校正）** を満たすもの
-6. 有効夜が **3 夜分**揃った時点で、`sleep_window_stationary_rate` の値一覧を抽出して L226（恒久閾値確定）の校正材料とする
-7. **検出手段（MLR glm#4 対応・fail条件の形骸化防止）**: 計測実施日の翌朝回収時に adb 照合で上記を確認する（朝回収フローに統合・別 cron は新設しない）
+5. **有効夜の定義（MLR mm#1/#7 採用）**: `sensor_verdicts` 行のうち `stationary_gate_active=1` かつ `sleep_window_stationary_rate IS NOT NULL` かつ睡眠帯窓数 ≥ **360 窓（1 時間分・暫定値・根拠=既知有効夜の睡眠帯窓数は数千窓規模〔3夜目 3,272 サンプル実測〕で余裕を持つ下限・恒久化時に再校正〔MLR r3 glm#5 採用で根拠を明記〕）** を満たすもの
+6. 有効夜が **3 夜分**揃った時点で、`sleep_window_stationary_rate` の値一覧を抽出して L226（恒久閾値確定）の校正材料とする。**L226 の前提条件〔MLR r3 glm#5 採用〕: 3 夜点での校正は暫定であり分布の統計的弱さ（点数の少なさ・信頼区間の広さ）を恒久化時に明示する**
+7. **検出手段（MLR glm#4 対応・fail条件の形骸化防止）**: 計測実施日の翌朝回収時に adb 照合で上記を確認する（朝回収フローに統合・別 cron は新設しない）・**fail 条件追加 5 の値不一致警告は import 時の logcat 出力であり、ログローテーションで消失する前に朝回収時に確認する〔MLR r3 glm#4 採用で限界を明記〕・設計時の担保は §8⑦ テスト**
 
 ### fail条件（事前固定・すべて観測可能な具体指標）
 
 - **元（L247）**: 統計永続化後も 3 有効夜の stationary 分布が取れなかった時
-- **追加 1（MLR glm#5 対応）**: amplitudes 行あり・verdicts 行なしの native_session_id が 1 件でも観測された時（部分書込の検知）
+- **追加 1（MLR glm#5 対応・r3 glm#2 で文言修正）**: amplitudes 行あり・verdicts 行なしの native_session_id が 1 件でも観測された時（**トランザクション 2 値化契約の違反検知** — 契約が正しければ構造的に発生しないはずで、観測時は契約破綻〔SQLite 以外の経路・手動 DB 操作・マイグレーション中間状態等〕の原因調査を行う）
 - **追加 2（MLR glm#1 対応）**: fail 判定セッションの amplitude 行数が 0 のまま次回計測を迎えた時（fail 生値保存の欠落検知）
 - **追加 3（MLR glm#4 反証対応）**: 有効夜 3 行のうち `sleep_window_stationary_rate` が NULL のものが混在し分布が組めない時（昼だけ pass が続く形態の検知）
 - **追加 4（MLR r2 glm#4 採用）**: 同一 native_session_id で `import_failed` が **2 回連続**発生した時（saveImportArtifacts の永続的書込失敗〔ストレージ満杯・DB 破損等〕の検知・status 遷移履歴または retry_count で観測）
 - **追加 5（MLR r2 採用 RM-2）**: 再 import 時に既存 verdict 行と新判定値が不一致になった時（判定ロジック非決定性・閾値変更後の再判定混入の検知シグナル・上書きはしない・ログ警告で観測）
+- **追加 6（MLR r3 gem#5 採用）**: `amplitude_samples` の native_session_id 別行数が `sensor_verdicts.actual_windows` と一致しないセッションが 1 件でも観測された時（生値と統計の行数整合破綻=データ破損を示唆する最強シグナル）
 
 ## 10. 影響しないもの
 
