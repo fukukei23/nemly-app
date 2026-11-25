@@ -111,7 +111,7 @@ export interface FailVerdict {
 
 **トランザクション契約（MLR mm#2 + glm#5 採用）**: amplitudes と verdicts は単一 SQLite トランザクションで commit し、**両方成功か両方失敗かの2値化**とする（「生値のみ・統計なし」の部分書込状態を構造的に排除・InMemory 実装でも partial commit 不在をテストする〔§8〕）。**トランザクション内で外部 I/O（native bridge 呼出等）は行わない**。後段の markImportFailed / insertSession / confirmImported は別トランザクション（既存経路の変更なし）。
 
-**性能契約（MLR glm#3 + gem#1/#6 採用）**: saveImportArtifacts は窓数分（実測 3,272 行/9時間晩）のバッチ INSERT を単一トランザクションで実行する。**書込時間は §9 の完了条件で実機実測する**（kill 窓を意図的に広げていないことの検証・fail条件として書込実測 1 秒超で再設計）。保持期間/purge ポリシー（DB 肥大化対策）は非目標（L175 と一体で将来判断・容量試算は §2 どおり約 47MB/年）。
+**性能契約（MLR glm#3 + gem#1/#6 採用）**: saveImportArtifacts は窓数分（実測 3,272 行/9時間晩）のバッチ INSERT を単一トランザクションで実行する。**書込時間は §9 の完了条件で実機実測する**（kill 窓を意図的に広げていないことの検証・fail条件として書込実測 1 秒超で再設計）。保持期間/purge ポリシー（DB 肥大化対策）は非目標（L175 と一体で将来判断・容量試算は約 46MB/年=3,272 行×40B 概算×365 日〔self-inspect V7 実算〕）。
 
 **順序の根拠（kill 耐性分析）** — 生値+統計を**最初に**書くのが核心:
 
