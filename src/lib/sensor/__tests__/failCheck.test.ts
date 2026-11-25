@@ -167,3 +167,48 @@ describe("時間帯制限（2026-10-31・常時ON運用対応・バックログP
     expect(f.reasons.some((s) => s.includes("stationary_rate"))).toBe(true);
   });
 });
+
+describe("v4 統計永続化: ゲート値の露出（判定ロジック不変）", () => {
+  it("windows 提供時・睡眠帯窓あり → sleepWindowStationaryRate に睡眠帯限定値・stationaryGateActive=true", () => {
+    // 2026-11-25 22:30 JST（睡眠帯内）から 10 秒窓 ×2（1 窓は amplitude 0.005=定常・1 窓は 0.5=非定常）
+    const base = Date.UTC(2026, 10, 25, 13, 30, 0); // JST 22:30
+    const windows = [
+      { tsMs: base, amplitude: 0.005 },
+      { tsMs: base + 10_000, amplitude: 0.5 },
+    ];
+    const v = validateAndJudge(
+      { samples: [1, 2], gaps: [], validRatio: 1 },
+      2,
+      { nanRate: 0, stationaryRate: 0, windows }
+    );
+    expect(v.verdict).toBe("pass");
+    expect(v.stationaryGateActive).toBe(true);
+    expect(v.sleepWindowStationaryRate).toBe(0.5); // 1/2
+  });
+
+  it("windows 提供時・窓全部が睡眠帯外（昼だけ）→ stationaryGateActive=false・rate=null・fail しない", () => {
+    const base = Date.UTC(2026, 10, 25, 4, 0, 0); // JST 13:00（睡眠帯外）
+    const windows = [
+      { tsMs: base, amplitude: 0.005 },
+      { tsMs: base + 10_000, amplitude: 0.005 },
+    ];
+    const v = validateAndJudge(
+      { samples: [1, 2], gaps: [], validRatio: 1 },
+      2,
+      { nanRate: 0, stationaryRate: 1, windows } // 全窓定常でも windows ありなのでゲートは睡眠帯のみ
+    );
+    expect(v.stationaryGateActive).toBe(false);
+    expect(v.sleepWindowStationaryRate).toBeNull();
+  });
+
+  it("windows 未指定（CSV 等の既存経路）→ stationaryGateActive=false・rate=null・従来判定動作は不変", () => {
+    const v = validateAndJudge(
+      { samples: [1, 2], gaps: [], validRatio: 0.5 },
+      4,
+      { nanRate: 0, stationaryRate: 0.95 } // valid_ratio fail になる既存経路
+    );
+    expect(v.verdict).toBe("fail");
+    expect(v.stationaryGateActive).toBe(false);
+    expect(v.sleepWindowStationaryRate).toBeNull();
+  });
+});

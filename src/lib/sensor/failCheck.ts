@@ -37,6 +37,8 @@ export function validateAndJudge(
     return {
       verdict: "fail",
       reasons: ["zero_samples: 記録が1件も無い（r3 mm#1）"],
+      sleepWindowStationaryRate: null,
+      stationaryGateActive: false,
     };
   }
   if (series.validRatio < MIN_VALID_RATIO) {
@@ -56,15 +58,19 @@ export function validateAndJudge(
   }
 
   // stationary ゲート（時間帯制限: windows 提供時は睡眠帯窓のみで再計算）
-  let stationaryGateActive = true;
+  let stationaryGateActive = true; // 既存: ゲート発動フラグ（windows 未指定でも発動する・判定ロジックの一部）
+  let sleepWindowGateActive = false; // v4 統計メタ: 睡眠帯窓が存在したか（windows 未指定時 false）
+  let sleepWindowStationaryRate: number | null = null;
   let stationaryRate = quality.stationaryRate;
   if (quality.windows) {
     const inSleep = quality.windows.filter((w) => isInSleepWindow(w.tsMs));
     if (inSleep.length === 0) {
       stationaryGateActive = false; // 判定対象なし（昼だけのセッションは stationary で fail しない）
     } else {
+      sleepWindowGateActive = true;
       stationaryRate =
         inSleep.filter((w) => w.amplitude < STATIONARY_THRESHOLD).length / inSleep.length;
+      sleepWindowStationaryRate = stationaryRate;
     }
   }
   if (stationaryGateActive && stationaryRate > MAX_STATIONARY_RATE) {
@@ -76,11 +82,14 @@ export function validateAndJudge(
     reasons.push(`nan_rate: ${(quality.nanRate * 100).toFixed(2)}% > ${MAX_NAN_RATE * 100}%`);
   }
 
-  if (reasons.length === 0) return { verdict: "pass" };
+  if (reasons.length === 0)
+    return { verdict: "pass", sleepWindowStationaryRate, stationaryGateActive: sleepWindowGateActive };
   const hardFail = reasons.some((r) => r.startsWith("long_gap"));
-  if (hardFail) return { verdict: "fail", reasons };
+  if (hardFail)
+    return { verdict: "fail", reasons, sleepWindowStationaryRate, stationaryGateActive: sleepWindowGateActive };
   // valid_ratio / short_gap / 品質ゲートのみの違反は fail（short_gap 単独なら degraded）
   const onlyShortGap = reasons.every((r) => r.startsWith("short_gap"));
-  if (onlyShortGap) return { verdict: "degraded_pass", reasons };
-  return { verdict: "fail", reasons };
+  if (onlyShortGap)
+    return { verdict: "degraded_pass", reasons, sleepWindowStationaryRate, stationaryGateActive: sleepWindowGateActive };
+  return { verdict: "fail", reasons, sleepWindowStationaryRate, stationaryGateActive: sleepWindowGateActive };
 }

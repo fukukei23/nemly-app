@@ -36,6 +36,16 @@ export interface SeriesMeta {
 
 /** fail判定の結果（spec §8 rubric・判定は failCheck.ts のみで行う） */
 export type FailVerdict =
-  | { verdict: "pass" }
-  | { verdict: "degraded_pass"; reasons: string[] }
-  | { verdict: "fail"; reasons: string[] };
+  | { verdict: "pass"; sleepWindowStationaryRate: number | null; stationaryGateActive: boolean }
+  | {
+      verdict: "degraded_pass";
+      reasons: string[];
+      sleepWindowStationaryRate: number | null;
+      stationaryGateActive: boolean;
+    }
+  | {
+      verdict: "fail";
+      reasons: string[];
+      sleepWindowStationaryRate: number | null;
+      stationaryGateActive: boolean;
+    };
