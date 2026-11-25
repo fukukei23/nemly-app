@@ -157,9 +157,10 @@ interface Repository {
    */
   saveImportArtifacts(
     verdict: VerdictRecord,
-    samples: { tsMs: number; amplitude: number; quality: number }[]
-    // quality は既存契約を継承（windowAggregator.ts:75・0=低品質窓〔10秒窓イベント数<160〕/1=通常窓・
-    // MLR r3 glm#1 採用で契約を明記・分布抽出時は quality 解釈がズレないことをこの定義で担保）
+    samples: { tsMs: number; amplitude: number; quality: 0 | 1 }[]
+    // quality は既存契約を継承（types.ts SensorSample・windowAggregator.ts:75 実装と同一:
+    // **0=OK〔10秒窓イベント数≥160〕/ 1=DEGRADED〔イベント数<160〕**・
+    // MLR r3 glm#1 採用で契約を明記・※r3 記述で 0/1 の対応を逆に書いた誤転記を計画作成時に実装照合で発見訂正）
   ): Promise<void>;
 }
 ```
