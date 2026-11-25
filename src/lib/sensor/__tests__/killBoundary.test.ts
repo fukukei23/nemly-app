@@ -213,6 +213,13 @@ describe("kill 4境界（spec §7）", () => {
       async getSessionIdByNativeId() {
         return null;
       },
+      async saveImportArtifacts() {},
+      async getVerdictByNativeId() {
+        return null;
+      },
+      async countAmplitudeSamples() {
+        return 0;
+      },
     });
 
     await expect(importSensorSession(db)).rejects.toThrow(
