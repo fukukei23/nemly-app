@@ -17,7 +17,13 @@
  *   （部分保存 = stages 無しの孤立 session を防ぐ・migrationRunner と同一契約）
  */
 
-import type { Repository, SessionRecord, SleepStageRow } from "./repository";
+import type {
+  AmplitudeSampleRow,
+  Repository,
+  SessionRecord,
+  SleepStageRow,
+  VerdictRecord,
+} from "./repository";
 import { DuplicateNativeSessionError, _setRepositoryForTest } from "./repository";
 import { ALL_MIGRATIONS } from "./migration/migrations";
 import { migrationRunner } from "./migration/migrationRunner";
@@ -145,6 +151,111 @@ export class SQLiteRepository implements Repository {
     );
     const first = (rows as any[])[0];
     return first?.id ?? null;
+  }
+
+  async saveImportArtifacts(verdict: VerdictRecord, samples: AmplitudeSampleRow[]): Promise<void> {
+    await this.ready;
+    await this.db.withExclusiveTransactionAsync(async (tx: any) => {
+      // verdicts: INSERT OR IGNORE（初回のみ記録・r2 判断反転）
+      await tx.runAsync(
+        `INSERT OR IGNORE INTO sensor_verdicts (
+           native_session_id, started_at_ms, ended_at_ms, end_reason, verdict, reasons_json,
+           stationary_rate, sleep_window_stationary_rate, stationary_gate_active,
+           nan_rate, valid_ratio, expected_windows, actual_windows, judged_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          verdict.nativeSessionId,
+          verdict.startedAtMs,
+          verdict.endedAtMs,
+          verdict.endReason,
+          verdict.verdict,
+          JSON.stringify(verdict.reasons),
+          verdict.stationaryRate,
+          verdict.sleepWindowStationaryRate,
+          verdict.stationaryGateActive ? 1 : 0,
+          verdict.nanRate,
+          verdict.validRatio,
+          verdict.expectedWindows,
+          verdict.actualWindows,
+          verdict.judgedAt,
+        ]
+      );
+      // 値不一致検知（RM-2: 既存行と比較・judged_at は非決定カラムなので除外・上書きはしない）
+      const existing = await tx.getFirstAsync(
+        `SELECT * FROM sensor_verdicts WHERE native_session_id = ?`,
+        [verdict.nativeSessionId]
+      );
+      if (existing) {
+        const prev = {
+          verdict: existing.verdict,
+          reasons: existing.reasons_json,
+          stationaryRate: existing.stationary_rate,
+          sleepWindowStationaryRate: existing.sleep_window_stationary_rate,
+          stationaryGateActive: existing.stationary_gate_active,
+          nanRate: existing.nan_rate,
+          validRatio: existing.valid_ratio,
+          expectedWindows: existing.expected_windows,
+          actualWindows: existing.actual_windows,
+        };
+        const next = {
+          verdict: verdict.verdict,
+          reasons: JSON.stringify(verdict.reasons),
+          stationaryRate: verdict.stationaryRate,
+          sleepWindowStationaryRate: verdict.sleepWindowStationaryRate,
+          stationaryGateActive: verdict.stationaryGateActive ? 1 : 0,
+          nanRate: verdict.nanRate,
+          validRatio: verdict.validRatio,
+          expectedWindows: verdict.expectedWindows,
+          actualWindows: verdict.actualWindows,
+        };
+        if (JSON.stringify(prev) !== JSON.stringify(next)) {
+          console.warn(
+            `[v4] verdict mismatch on re-import: ${verdict.nativeSessionId}（既存行を保持・上書きしない）`
+          );
+        }
+      }
+      // amplitudes: バッチ INSERT OR IGNORE（(session_id, ts_ms) UNIQUE・session_id=native_session_id 統一）
+      for (const s of samples) {
+        await tx.runAsync(
+          `INSERT OR IGNORE INTO amplitude_samples (session_id, ts_ms, amplitude, quality) VALUES (?, ?, ?, ?)`,
+          [verdict.nativeSessionId, s.tsMs, s.amplitude, s.quality]
+        );
+      }
+    });
+  }
+
+  async getVerdictByNativeId(nativeSessionId: string): Promise<VerdictRecord | null> {
+    await this.ready;
+    const row = await this.db.getFirstAsync(
+      `SELECT * FROM sensor_verdicts WHERE native_session_id = ?`,
+      [nativeSessionId]
+    );
+    if (!row) return null;
+    return {
+      nativeSessionId: row.native_session_id,
+      startedAtMs: row.started_at_ms,
+      endedAtMs: row.ended_at_ms,
+      endReason: row.end_reason,
+      verdict: row.verdict,
+      reasons: JSON.parse(row.reasons_json ?? "[]"),
+      stationaryRate: row.stationary_rate,
+      sleepWindowStationaryRate: row.sleep_window_stationary_rate,
+      stationaryGateActive: row.stationary_gate_active === 1,
+      nanRate: row.nan_rate,
+      validRatio: row.valid_ratio,
+      expectedWindows: row.expected_windows,
+      actualWindows: row.actual_windows,
+      judgedAt: row.judged_at,
+    };
+  }
+
+  async countAmplitudeSamples(nativeSessionId: string): Promise<number> {
+    await this.ready;
+    const row = await this.db.getFirstAsync(
+      `SELECT COUNT(*) AS n FROM amplitude_samples WHERE session_id = ?`,
+      [nativeSessionId]
+    );
+    return row ? Number(row.n) : 0;
   }
 }
 
