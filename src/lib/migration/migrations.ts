@@ -112,4 +112,35 @@ export const v3: Migration = {
   up: V3_DDL,
 };
 
-export const ALL_MIGRATIONS: Migration[] = [v1, v2, v3];
+/**
+ * v4: 統計永続化（L247・pass→purge で校正データが消える構造問題の解消）
+ * - sensor_verdicts: failCheck 判定統計スナップショット（fail も記録・native_session_id で 1 行）
+ * - 書き込みは INSERT OR IGNORE（初回判定 immutable・r2 判断反転済み）
+ * - 設計正典: docs/superpowers/specs/2026-11-25-nemly統計永続化-design.md §4
+ */
+export const V4_DDL = `
+CREATE TABLE IF NOT EXISTS sensor_verdicts (
+  native_session_id TEXT PRIMARY KEY,
+  started_at_ms INTEGER NOT NULL,
+  ended_at_ms INTEGER NOT NULL,
+  end_reason TEXT,
+  verdict TEXT NOT NULL CHECK (verdict IN ('pass','degraded_pass','fail')),
+  reasons_json TEXT NOT NULL DEFAULT '[]',
+  stationary_rate REAL NOT NULL,
+  sleep_window_stationary_rate REAL,
+  stationary_gate_active INTEGER NOT NULL,
+  nan_rate REAL NOT NULL,
+  valid_ratio REAL NOT NULL,
+  expected_windows INTEGER NOT NULL,
+  actual_windows INTEGER NOT NULL,
+  judged_at TEXT NOT NULL
+);
+`.trim();
+
+export const v4: Migration = {
+  version: 4,
+  name: "v4: sensor_verdicts (failCheck 統計永続化・L247)",
+  up: V4_DDL,
+};
+
+export const ALL_MIGRATIONS: Migration[] = [v1, v2, v3, v4];
