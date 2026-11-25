@@ -44,7 +44,7 @@
     PRIMARY KEY (session_id, ts_ms)
   );
   ```
-  — **session_id は TEXT 型・FK 制約なし**（sleep_sessions.id INTEGER を参照しない）ため、**fail セッション（sleep_sessions 行なし）も native_session_id 文字列をそのまま保存できる**。v4 はこのテーブルをそのまま利用し、**DDL 変更は行わず書き込み経路のみ追加する**
+  — **session_id は TEXT 型・FK 制約なし**（sleep_sessions.id INTEGER を参照しない）ため、**fail セッション（sleep_sessions 行なし）も native_session_id 文字列をそのまま保存できる**。v4 はこのテーブルをそのまま利用し、**DDL 変更は行わず書き込み経路のみ追加する**。**session_id に格納する値は全判定（pass/degraded/fail とも）で native_session_id 文字列に統一する**（pass セッションで sleep_sessions.id 整数を混在させない・MLR r2 glm#5 採用）
 - **repository**: `repository.ts`（interface + InMemory テスト実装）+ `sqliteRepository.ts`（実機 SQLite 実装）
 - **kill 復旧**（既存 spec §6 3層）: claim CAS → 事前照合（insert 後 kill の already-imported 判定）→ UNIQUE index 防御層
 
@@ -69,8 +69,8 @@ CREATE TABLE IF NOT EXISTS sensor_verdicts (
 );
 ```
 
-- **PRIMARY KEY = native_session_id**: 1 セッション 1 行・再判定時は INSERT OR REPLACE で冪等 upsert
-- **INSERT OR REPLACE の冪等性根拠（MLR mm#3 対応）**: 再判定が起こるのは kill 復旧の再回収時のみで、同一 samples → 同一 `summarizeQuality` → 同一 verdict となるため upsert 値は同一（同値上書き）。**異なる値での置換は構造上起きないはず**であり、この前提を §8⑤ の冪等性テスト（同一セッション再 import で sensor_verdicts 全カラム値が不変）で担保する。verdict の履歴管理（evaluation 履歴テーブル等）はスコープ外（L175 の再 import 機能と一体で将来判断・履歴が必要になった時点で別テーブルへ）
+- **PRIMARY KEY = native_session_id**: 1 セッション 1 行・**書き込みは INSERT OR IGNORE（初回判定のみ記録・r2 採用で REPLACE から反転）**
+- **INSERT OR IGNORE の根拠（MLR r2 3機一致採用・r1 の REPLACE から反転）**: ①`judged_at` は判定実行時刻で非決定的 — REPLACE で upsert すると再 import 時に必ず値が変わり、r1 冪等性主張（全カラム値不変）と自己矛盾していた（glm#1 が指摘・設計バグとして認定）②kill 復旧の再判定は同 samples→同 verdict なので既存行を保持するだけで正しい ③将来 L226 で閾値・判定ロジックが変更された後の再判定でも、旧閾値時代の初回スナップショットが破壊されない（校正履歴の保護）④再 import 時に既存 verdict と**値が不一致になった場合は INSERT せずログ警告**（RM-2・異常サインの検知=fail 条件追加 5）。schema_version / input_hash 等の世代管理列は IGNORE 化で初回判定が immutable に残るため不要（必要になった時点で L226/L175 と一体で追加）
 - **sleep_window_stationary_rate は nullable**: 時間帯制限（`18b9270`）でゲート未実施（睡眠帯窓ゼロ=昼だけセッション）の場合は NULL を許し、`stationary_gate_active=0` と組み合わせて「ゲートスキップ」と「0%」を区別する
 - sleep_sessions へのカラム追加は**しない**（fail は sleep_sessions に行が生まれないため全判定記録の要件②を満たせない・verdicts テーブルに集約）
 - reasons は JSON 配列文字列（`reasons_json`）・pass/degraded_pass は空配列 `[]`
@@ -102,7 +102,8 @@ export interface FailVerdict {
 ```
 5. summarizeQuality + validateAndJudge          （既存）
 5a. saveImportArtifacts(verdict, samples)       → amplitudes（INSERT OR IGNORE）+ verdicts
-                                                  （INSERT OR REPLACE）を同一トランザクションで
+                                                  （INSERT OR IGNORE・初回のみ記録・既存行は上書きせず
+                                                   値不一致ならログ警告=MLR r2 採用）を同一トランザクションで
                                                   一括コミット（全判定・バッチINSERT・MLR mm#2/glm#5対応）
 6.  fail  → markImportFailed → return            （既存・位置不変）
 7.  analyzeSleep + insertSession                 （既存）
@@ -111,14 +112,14 @@ export interface FailVerdict {
 
 **トランザクション契約（MLR mm#2 + glm#5 採用）**: amplitudes と verdicts は単一 SQLite トランザクションで commit し、**両方成功か両方失敗かの2値化**とする（「生値のみ・統計なし」の部分書込状態を構造的に排除・InMemory 実装でも partial commit 不在をテストする〔§8〕）。**トランザクション内で外部 I/O（native bridge 呼出等）は行わない**。後段の markImportFailed / insertSession / confirmImported は別トランザクション（既存経路の変更なし）。
 
-**性能契約（MLR glm#3 + gem#1/#6 採用）**: saveImportArtifacts は窓数分（実測 3,272 行/9時間晩）のバッチ INSERT を単一トランザクションで実行する。**書込時間は §9 の完了条件で実機実測する**（kill 窓を意図的に広げていないことの検証・fail条件として書込実測 1 秒超で再設計）。保持期間/purge ポリシー（DB 肥大化対策）は非目標（L175 と一体で将来判断・容量試算は約 46MB/年=3,272 行×40B 概算×365 日〔self-inspect V7 実算〕）。
+**性能契約（MLR glm#3 + gem#1/#6 採用）**: saveImportArtifacts は窓数分（実測 3,272 行/9時間晩）のバッチ INSERT を単一トランザクションで実行する。**書込時間は §9 の完了条件で実機実測する**（fail条件として書込実測 1 秒超で再設計 — **1 秒の根拠〔MLR r2 glm#6 採用〕**: 既存停止処理の UI 復帰実測 2.13〜2.82 秒〔L228 完遂時実測〕に対し、書込追加による遅延をその半分程度に抑える目安）。保持期間/purge ポリシー（DB 肥大化対策）は非目標（L175 と一体で将来判断・容量試算は約 46MB/年=3,272 行×40B 概算×365 日〔self-inspect V7 実算〕・**fail 連続シナリオ追試算〔MLR r2 glm#3/gem#1 採用〕**: 30 日連続 fail でも fail 生値分は約 4MB で問題にならない規模）。**実機 kill は意図的注入をせず、自然発生時（停止忘れ・電池切れ等）の再回収を観測する**（計測中の kill は測定データ自体を破壊するため・MLR r2 mm#6 部分採用）。
 
 **順序の根拠（kill 耐性分析）** — 生値+統計を**最初に**書くのが核心:
 
 | kill 地点 | 次回回収の挙動 | 生値・統計 |
 |---|---|---|
-| saveImportArtifacts 前（5a 未実施） | claim 成功 → 再判定 → 5a やり直し（同値 upsert）→ 通常継続 | 保たれる（まだ書いていないだけ） |
-| saveImportArtifacts 後・markImportFailed 前（fail 経路） | claim 成功 → 再判定 → 5a 同値 upsert → markImportFailed | 保たれる |
+| saveImportArtifacts 前（5a 未実施） | claim 成功 → 再判定 → 5a やり直し（既存行は IGNORE で保持・初回未書込なら書込）→ 通常継続 | 保たれる（まだ書いていないだけ） |
+| saveImportArtifacts 後・markImportFailed 前（fail 経路） | claim 成功 → 再判定 → 5a 既存行保持（IGNORE・値不一致ならログ警告）→ markImportFailed | 保たれる |
 | insertSession 後・confirmImported 前 | claim 成功 → 事前照合 already-imported → confirmImported（native purge） | **UI DB に既に保存済み=保たれる（本設計の主効果）** |
 | confirmImported 後 | 冪等完了 | 保たれる |
 
@@ -151,7 +152,8 @@ interface Repository {
   /**
    * 判定統計スナップショット + 10秒窓生値のアトミック保存
    * （単一トランザクション・バッチINSERT・amplitudes=INSERT OR IGNORE /
-   *   verdicts=INSERT OR REPLACE・MLR mm#2/glm#5 の2値化契約）
+   *   verdicts=INSERT OR IGNORE〔初回のみ記録・既存行は上書きしない〕・
+   *   既存 verdict と値不一致時はログ警告〔上書きはしない〕・MLR mm#2/glm#5 の2値化契約+r2 採用）
    */
   saveImportArtifacts(
     verdict: VerdictRecord,
@@ -167,7 +169,7 @@ interface Repository {
 ## 8. テスト計画
 
 - **failCheck.test.ts**: ①`quality.windows` 提供時・睡眠帯窓限定値が `sleepWindowStationaryRate` に入る ②昼だけセッション（窓全部が睡眠帯外）で `stationaryGateActive=false`・`sleepWindowStationaryRate=null`・verdict は従来どおり fail しない ③windows 未指定で従来動作不変 ④拡張フィールド追加で既存期待値比較が壊れる場合は更新（判定結果自体の期待値は不変）
-- **sensorImport.test.ts**: ①pass/degraded/fail 各経路で amplitudes+verdicts が書かれる ②already-imported・empty ショートカットでは書かれない ③catch 経路では amplitudes も verdicts も書かれない（トランザクション2値化） ④kill 経路シミュレーション 4 種（§6 表の 4 地点・saveImportArtifacts 前/後・insertSession 後・confirmImported 後）で生値と統計が UI DB に残る ⑤ 冪等性（同一セッション再 import で行数不変**かつ sensor_verdicts 全カラム値が不変**・MLR mm#3 の担保テスト） ⑥ **トランザクション2値化**（verdicts 書込失敗を注入した場合 amplitudes も rollback される=部分書込ゼロ・InMemory 実装で partial commit 不在を検証）
+- **sensorImport.test.ts**: ①pass/degraded/fail 各経路で amplitudes+verdicts が書かれる ②already-imported・empty ショートカットでは書かれない ③catch 経路では amplitudes も verdicts も書かれない（トランザクション2値化） ④kill 経路シミュレーション 4 種（§6 表の 4 地点・saveImportArtifacts 前/後・insertSession 後・confirmImported 後）で生値と統計が UI DB に残る ⑤ 冪等性（同一セッション再 import で行数不変**かつ sensor_verdicts 全カラム値が不変〔INSERT OR IGNORE 化により judged_at を含めて初回値が保持される・MLR r2 glm#1 矛盾の解消をテストで検証〕**） ⑥ **トランザクション2値化**（verdicts 書込失敗を注入した場合 amplitudes も rollback される=部分書込ゼロ・InMemory 実装で partial commit 不在を検証） ⑦ **値不一致検知**（既存 verdict 行があり・再 import の新 verdict と値が不一致な場合に上書きせずログ警告を出す〔MLR r2 採用 RM-2〕）
 - **migrationRunner.test.ts**: v4 DDL 適用の検証（既存 v2/v3 テストのパターン踏襲）
 - **fixture 回帰**: `calibration20261028.json` は不変（判定ロジックを変更しないため）
 - **品質ゲート**: jest 全緑 + `tsc --noEmit` 0 + `expo lint` 0 errors（既存基準維持）
@@ -201,6 +203,8 @@ interface Repository {
 - **追加 1（MLR glm#5 対応）**: amplitudes 行あり・verdicts 行なしの native_session_id が 1 件でも観測された時（部分書込の検知）
 - **追加 2（MLR glm#1 対応）**: fail 判定セッションの amplitude 行数が 0 のまま次回計測を迎えた時（fail 生値保存の欠落検知）
 - **追加 3（MLR glm#4 反証対応）**: 有効夜 3 行のうち `sleep_window_stationary_rate` が NULL のものが混在し分布が組めない時（昼だけ pass が続く形態の検知）
+- **追加 4（MLR r2 glm#4 採用）**: 同一 native_session_id で `import_failed` が **2 回連続**発生した時（saveImportArtifacts の永続的書込失敗〔ストレージ満杯・DB 破損等〕の検知・status 遷移履歴または retry_count で観測）
+- **追加 5（MLR r2 採用 RM-2）**: 再 import 時に既存 verdict 行と新判定値が不一致になった時（判定ロジック非決定性・閾値変更後の再判定混入の検知シグナル・上書きはしない・ログ警告で観測）
 
 ## 10. 影響しないもの
 
