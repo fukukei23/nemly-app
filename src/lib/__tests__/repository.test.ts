@@ -13,9 +13,14 @@ import {
   countSessions,
   _resetRepositoryForTest,
   _setRepositoryForTest,
+  saveImportArtifacts,
+  getVerdictByNativeId,
+  countAmplitudeSamples,
+  InMemoryRepository,
   type SessionRecord,
   type SleepStageRow,
   type Repository,
+  type VerdictRecord,
 } from "../repository";
 
 function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -141,11 +146,82 @@ describe("Nemly Repository (InMemory)", () => {
         return 7;
       },
       getSessionIdByNativeId: async () => null,
+      saveImportArtifacts: async () => {},
+      getVerdictByNativeId: async () => null,
+      countAmplitudeSamples: async () => 0,
     };
     _setRepositoryForTest(spyRepo);
     const id = await insertSession(makeSession(), []);
     expect(id).toBe(42);
     expect(await countSessions()).toBe(7);
     expect(calls).toEqual(["insert", "count"]);
+  });
+});
+
+function makeVerdict(overrides: Partial<VerdictRecord> = {}): VerdictRecord {
+  return {
+    nativeSessionId: "s-1000",
+    startedAtMs: 1_795_542_057_315,
+    endedAtMs: 1_795_574_777_315,
+    endReason: "user_stop",
+    verdict: "pass",
+    reasons: [],
+    stationaryRate: 0.738,
+    sleepWindowStationaryRate: 0.738,
+    stationaryGateActive: true,
+    nanRate: 0,
+    validRatio: 1,
+    expectedWindows: 3272,
+    actualWindows: 3272,
+    judgedAt: "2026-11-25T02:46:19.140Z",
+    ...overrides,
+  };
+}
+
+describe("saveImportArtifacts（v4・InMemory）", () => {
+  beforeEach(() => {
+    _resetRepositoryForTest();
+    _setRepositoryForTest(new InMemoryRepository());
+  });
+
+  it("初回保存で verdict 1 行・amplitude 窓数行が書かれる", async () => {
+    const samples = [
+      { tsMs: 1000, amplitude: 0.005, quality: 0 as const },
+      { tsMs: 11000, amplitude: 0.5, quality: 1 as const },
+    ];
+    await saveImportArtifacts(makeVerdict(), samples);
+    expect(await getVerdictByNativeId("s-1000")).toEqual(makeVerdict());
+    expect(await countAmplitudeSamples("s-1000")).toBe(2);
+  });
+
+  it("再保存（同一内容）で行数不変・全カラム値不変〔judged_at を含む＝IGNORE 化の検証・MLR r2 glm#1〕", async () => {
+    const v1 = makeVerdict();
+    const samples = [{ tsMs: 1000, amplitude: 0.005, quality: 0 as const }];
+    await saveImportArtifacts(v1, samples);
+    const afterFirst = await getVerdictByNativeId("s-1000");
+    // 再 import（judged_at が変わる＝非決定カラム）
+    await saveImportArtifacts(makeVerdict({ judgedAt: "2026-11-25T12:00:00.000Z" }), samples);
+    const afterSecond = await getVerdictByNativeId("s-1000");
+    expect(afterSecond).toEqual(afterFirst); // judged_at 含め全カラム不変
+    expect(await countAmplitudeSamples("s-1000")).toBe(1); // INSERT OR IGNORE で増えない
+  });
+
+  it("値不一致の再保存（verdict 値が違う）で上書きせず既存を保持する〔RM-2〕", async () => {
+    await saveImportArtifacts(makeVerdict({ verdict: "pass" }), [
+      { tsMs: 1000, amplitude: 0.005, quality: 0 as const },
+    ]);
+    await saveImportArtifacts(makeVerdict({ verdict: "fail", reasons: ["x"] }), [
+      { tsMs: 1000, amplitude: 0.005, quality: 0 as const },
+    ]);
+    const v = await getVerdictByNativeId("s-1000");
+    expect(v?.verdict).toBe("pass"); // 初回が保持される
+  });
+
+  it("部分保存が起こらない（トランザクション 2 値化の契約・InMemory では単一操作）", async () => {
+    // InMemory 実装は単一の同期的操作のため partial commit は構造的に発生しない。
+    // このテストは「saveImportArtifacts 1 呼び出しで両方が書かれるか・両方書かれないか」を検証する。
+    await saveImportArtifacts(makeVerdict(), []);
+    expect(await getVerdictByNativeId("s-1000")).not.toBeNull();
+    expect(await countAmplitudeSamples("s-1000")).toBe(0); // samples 空でも verdict は書かれる
   });
 });

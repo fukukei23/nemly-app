@@ -56,6 +56,31 @@ export class DuplicateNativeSessionError extends Error {
   }
 }
 
+/** v4 統計永続化: failCheck 判定統計スナップショット（設計 §7・INSERT OR IGNORE 初回 immutable） */
+export interface VerdictRecord {
+  nativeSessionId: string;
+  startedAtMs: number;
+  endedAtMs: number;
+  endReason: string | null;
+  verdict: "pass" | "degraded_pass" | "fail";
+  reasons: string[];
+  stationaryRate: number;
+  sleepWindowStationaryRate: number | null;
+  stationaryGateActive: boolean;
+  nanRate: number;
+  validRatio: number;
+  expectedWindows: number;
+  actualWindows: number;
+  judgedAt: string; // ISO
+}
+
+/** saveImportArtifacts の amplitude 行型（quality 契約: 0=OK〔≥160 イベント〕/1=DEGRADED〔<160〕） */
+export interface AmplitudeSampleRow {
+  tsMs: number;
+  amplitude: number;
+  quality: 0 | 1;
+}
+
 export interface SessionWithStages extends SessionRecord {
   stages: SleepStageRow[];
 }
@@ -72,15 +97,28 @@ export interface Repository {
   countSessions(): Promise<number>;
   /** native_session_id で既存 sleep_sessions 行を照合する（spec §6 重複防止①事前照合） */
   getSessionIdByNativeId(nativeSessionId: string): Promise<number | null>;
+  /**
+   * v4 統計永続化: 判定統計 + 生窓値のアトミック保存（設計 §6-7）
+   * 単一トランザクションで amplitudes（INSERT OR IGNORE）と verdicts
+   * （INSERT OR IGNORE・初回のみ記録・既存 verdict と値不一致時は上書きせずログ警告）を書く。
+   * トランザクション内で外部 I/O（native bridge 呼出等）は行わない。
+   */
+  saveImportArtifacts(verdict: VerdictRecord, samples: AmplitudeSampleRow[]): Promise<void>;
+  /** v4 検証用: native_session_id で判定統計行を取得（朝回収照合・テスト） */
+  getVerdictByNativeId(nativeSessionId: string): Promise<VerdictRecord | null>;
+  /** v4 検証用: native_session_id の生窓値行数（朝回収照合・テスト） */
+  countAmplitudeSamples(nativeSessionId: string): Promise<number>;
 }
 
 /**
  * InMemory 実装: テスト用。SQLite と等価な API を提供。
  */
-class InMemoryRepository implements Repository {
+export class InMemoryRepository implements Repository {
   private sessions: SessionRecord[] = [];
   private stages: Map<number, SleepStageRow[]> = new Map();
   private nextId = 1;
+  private verdicts: Map<string, VerdictRecord> = new Map();
+  private amplitudeRows: (AmplitudeSampleRow & { nativeSessionId: string })[] = [];
 
   async insertSession(session: SessionRecord, stages: SleepStageRow[]): Promise<number> {
     // UNIQUE(native_session_id) 相当（SQLite UNIQUE INDEX と等価契約・spec §6③防御層）
@@ -122,6 +160,41 @@ class InMemoryRepository implements Repository {
   async getSessionIdByNativeId(nativeSessionId: string): Promise<number | null> {
     const found = this.sessions.find((s) => s.nativeSessionId === nativeSessionId);
     return found?.id ?? null;
+  }
+
+  async saveImportArtifacts(verdict: VerdictRecord, samples: AmplitudeSampleRow[]): Promise<void> {
+    const existing = this.verdicts.get(verdict.nativeSessionId);
+    if (existing) {
+      // INSERT OR IGNORE: 初回のみ記録・上書きしない。値不一致なら警告（RM-2・judged_at は非決定なので除外比較）
+      const { judgedAt: _ea, ...restE } = existing;
+      const { judgedAt: _en, ...restN } = verdict;
+      if (JSON.stringify(restE) !== JSON.stringify(restN)) {
+        console.warn(
+          `[v4] verdict mismatch on re-import: ${verdict.nativeSessionId}（既存行を保持・上書きしない）`
+        );
+      }
+      return;
+    }
+    this.verdicts.set(verdict.nativeSessionId, { ...verdict });
+    const seen = new Set(
+      this.amplitudeRows
+        .filter((r) => r.nativeSessionId === verdict.nativeSessionId)
+        .map((r) => r.tsMs)
+    );
+    for (const s of samples) {
+      if (!seen.has(s.tsMs)) {
+        this.amplitudeRows.push({ nativeSessionId: verdict.nativeSessionId, ...s });
+      }
+    }
+  }
+
+  async getVerdictByNativeId(nativeSessionId: string): Promise<VerdictRecord | null> {
+    const found = this.verdicts.get(nativeSessionId);
+    return found ? { ...found } : null;
+  }
+
+  async countAmplitudeSamples(nativeSessionId: string): Promise<number> {
+    return this.amplitudeRows.filter((r) => r.nativeSessionId === nativeSessionId).length;
   }
 }
 
@@ -170,4 +243,21 @@ export async function getSessionByNativeId(
   nativeSessionId: string
 ): Promise<number | null> {
   return activeRepository.getSessionIdByNativeId(nativeSessionId);
+}
+
+export async function saveImportArtifacts(
+  verdict: VerdictRecord,
+  samples: AmplitudeSampleRow[]
+): Promise<void> {
+  return activeRepository.saveImportArtifacts(verdict, samples);
+}
+
+export async function getVerdictByNativeId(
+  nativeSessionId: string
+): Promise<VerdictRecord | null> {
+  return activeRepository.getVerdictByNativeId(nativeSessionId);
+}
+
+export async function countAmplitudeSamples(nativeSessionId: string): Promise<number> {
+  return activeRepository.countAmplitudeSamples(nativeSessionId);
 }
