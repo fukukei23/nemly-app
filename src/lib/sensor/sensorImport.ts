@@ -17,6 +17,9 @@ import {
   DuplicateNativeSessionError,
   getSessionByNativeId,
   insertSession,
+  saveImportArtifacts,
+  type AmplitudeSampleRow,
+  type VerdictRecord,
 } from "@/lib/repository";
 import { summarizeQuality } from "./windowAggregator";
 import { validateAndJudge } from "./failCheck";
@@ -86,6 +89,30 @@ export async function importSensorSession(
         windows: samples.map((s) => ({ tsMs: s.tsMs, amplitude: s.amplitude })),
       }
     );
+
+    // v4 統計永続化（設計 §3・順序契約 5a: 生値+統計を insertSession/markImportFailed の前に書く）
+    const verdictRecord: VerdictRecord = {
+      nativeSessionId: meta.sessionId,
+      startedAtMs: meta.startedAtMs,
+      endedAtMs: meta.endedAtMs,
+      endReason: meta.endReason,
+      verdict: verdict.verdict,
+      reasons: "reasons" in verdict ? verdict.reasons : [], // FailVerdict は判別ユニオン型（pass バリアントに reasons 無し）
+      stationaryRate: summary.stationaryRate,
+      sleepWindowStationaryRate: verdict.sleepWindowStationaryRate,
+      stationaryGateActive: verdict.stationaryGateActive,
+      nanRate: summary.nanRate,
+      validRatio: summary.validRatio,
+      expectedWindows,
+      actualWindows: samples.length,
+      judgedAt: new Date().toISOString(),
+    };
+    const amplitudeRows: AmplitudeSampleRow[] = samples.map((s) => ({
+      tsMs: s.tsMs,
+      amplitude: s.amplitude,
+      quality: s.quality,
+    }));
+    await saveImportArtifacts(verdictRecord, amplitudeRows);
 
     if (verdict.verdict === "fail") {
       // spec §2: fail は markImportFailed（status=import_failed・回収対象外・samples 保持）。
